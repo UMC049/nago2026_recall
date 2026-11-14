@@ -1,12 +1,12 @@
-﻿{
+{
     "title": "第一章 · 试用",
     "lines": [
         {
             "name": "",
             "text": "雨声敲在窗上，像有人在轻轻叩门。",
-            "background": "Assets/Arts/Background/微信图片_2026-11-14_163057_193.jpg",
+            "background": "Assets/VN/Resources/VN/BG/微信图片_2026-11-14_163057_193.jpg",
             "backgroundFade": 0.6000000238418579,
-            "bgm": "Assets/Sounds/Music/VELOCIA.ogg",
+            "bgm": "Assets/VN/Resources/VN/Audio/BGM/VELOCIA.ogg",
             "bgmVolume": 0.6499999761581421,
             "sfx": "",
             "sfxVolume": 1.0,
@@ -41,12 +41,12 @@
             "backgroundFade": 0.44999998807907107,
             "bgm": "",
             "bgmVolume": 0.699999988079071,
-            "sfx": "Assets/Sounds/SFX/bubbledie.wav",
+            "sfx": "Assets/VN/Resources/VN/Audio/SFX/bubbledie.wav",
             "sfxVolume": 0.800000011920929,
             "actors": [
                 {
                     "slot": "center",
-                    "sprite": "Assets/Arts/Characters/she.png",
+                    "sprite": "Assets/VN/Resources/VN/Char/she.png",
                     "hide": false,
                     "motion": "fade",
                     "offsetX": 0.0,
@@ -92,7 +92,7 @@
             "actors": [
                 {
                     "slot": "center",
-                    "sprite": "Assets/Arts/Characters/she.png",
+                    "sprite": "Assets/VN/Resources/VN/Char/she.png",
                     "hide": false,
                     "motion": "bounce",
                     "offsetX": 0.0,
@@ -138,7 +138,7 @@
             "actors": [
                 {
                     "slot": "center",
-                    "sprite": "Assets/Arts/Characters/she.png",
+                    "sprite": "Assets/VN/Resources/VN/Char/she.png",
                     "hide": false,
                     "motion": "fade",
                     "offsetX": 90.0,
@@ -258,7 +258,7 @@
             "backgroundFade": 0.44999998807907107,
             "bgm": "",
             "bgmVolume": 0.699999988079071,
-            "sfx": "Assets/Sounds/SFX/bubbledie.wav",
+            "sfx": "Assets/VN/Resources/VN/Audio/SFX/bubbledie.wav",
             "sfxVolume": 0.6000000238418579,
             "actors": [
                 {

@@ -19,6 +19,12 @@ namespace VN
 
         public List<VNActor> actors = new List<VNActor>();
 
+        /// <summary>数值变量 + 经过的节点</summary>
+        public VNState state = new VNState();
+
+        /// <summary>玩家做过的选择（分支树）</summary>
+        public List<VNChoiceRecord> history = new List<VNChoiceRecord>();
+
         public string savedAt;
         public string preview;
 
@@ -107,6 +113,56 @@ namespace VN
             for (int i = 0; i < SlotCount; i++)
                 if (Exists(i)) return true;
             return false;
+        }
+
+        // ---------------- 缩略图 ----------------
+
+        public static string ThumbPath(int slot)
+        {
+            return Path.Combine(Root, $"slot_{slot}.png");
+        }
+
+        public static void SaveThumbnail(int slot)
+        {
+            try
+            {
+                Directory.CreateDirectory(Root);
+                var tex = ScreenCapture.CaptureScreenshotAsTexture();
+                if (tex == null) return;
+                File.WriteAllBytes(ThumbPath(slot), tex.EncodeToPNG());
+                UnityEngine.Object.Destroy(tex);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[VN] 保存缩略图失败：{ex.Message}");
+            }
+        }
+
+        public static Texture2D LoadThumbnail(int slot)
+        {
+            var path = ThumbPath(slot);
+            if (!File.Exists(path)) return null;
+
+            try
+            {
+                var tex = new Texture2D(2, 2, TextureFormat.RGB24, false);
+                return tex.LoadImage(File.ReadAllBytes(path)) ? tex : null;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[VN] 读取缩略图失败：{ex.Message}");
+                return null;
+            }
+        }
+
+        public static void DeleteThumbnail(int slot)
+        {
+            try
+            {
+                var path = ThumbPath(slot);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch { }
         }
     }
 }

@@ -15,10 +15,14 @@ namespace VN.EditorTools
     {
         private const string DefaultPath = "Assets/VN/Resources/VN/Data/chapter01.json";
         private const string SizedKey = "VNScriptEditor.Sized";
-        private const string BgFolder = "Assets/Arts/Background";
-        private const string CharFolder = "Assets/Arts/Characters";
-        private const string BgmFolder = "Assets/Sounds/Music";
-        private const string SfxFolder = "Assets/Sounds/SFX";
+        private const string PosKey = "VNScriptEditor.Pos";
+
+        private bool _collapsed;
+        private Vector2 _expandedSize = new Vector2(1000f, 700f);
+        private const string BgFolder = "Assets/VN/Resources/VN/BG";
+        private const string CharFolder = "Assets/VN/Resources/VN/Char";
+        private const string BgmFolder = "Assets/VN/Resources/VN/Audio/BGM";
+        private const string SfxFolder = "Assets/VN/Resources/VN/Audio/SFX";
 
         private VNScript _script;
         private string _path;
@@ -33,6 +37,7 @@ namespace VN.EditorTools
         private bool _actorOpen = true;
         private bool _styleOpen = true;
         private bool _cameraOpen = true;
+        private bool _branchOpen = true;
 
         private List<string> _bgOptions = new List<string>();
         private List<string> _charOptions = new List<string>();
@@ -47,15 +52,14 @@ namespace VN.EditorTools
         public static void Open()
         {
             var win = GetWindow<VNScriptEditorWindow>("VN 剧本");
-            win.minSize = new Vector2(1080f, 720f);
+            win.minSize = new Vector2(720f, 480f);
 
-            // 首次打开给个够大的窗口；之后完全交给用户，不再硬改尺寸
+            // 首次打开给个合适的尺寸；之后记住用户自己调过的大小
             if (!SessionState.GetBool(SizedKey, false))
             {
                 SessionState.SetBool(SizedKey, true);
-                win.position = new Rect(win.position.x, win.position.y,
-                    Mathf.Max(win.position.width, 1180f),
-                    Mathf.Max(win.position.height, 840f));
+                if (!EditorPrefs.HasKey(PosKey))
+                    win.position = new Rect(win.position.x, win.position.y, 1000f, 700f);
             }
 
             win.TryAutoLoad();
@@ -64,6 +68,63 @@ namespace VN.EditorTools
         private void OnEnable()
         {
             RefreshAssetLists();
+            RestorePosition();
+        }
+
+        private void OnDisable()
+        {
+            SavePosition();
+        }
+
+        private void RestorePosition()
+        {
+            var raw = EditorPrefs.GetString(PosKey, "");
+            if (string.IsNullOrEmpty(raw)) return;
+
+            var parts = raw.Split(',');
+            if (parts.Length != 4) return;
+
+            if (float.TryParse(parts[0], out var x) &&
+                float.TryParse(parts[1], out var y) &&
+                float.TryParse(parts[2], out var w) &&
+                float.TryParse(parts[3], out var h))
+            {
+                position = new Rect(x, y, Mathf.Max(720f, w), Mathf.Max(480f, h));
+                _expandedSize = new Vector2(w, h);
+            }
+        }
+
+        private void SavePosition()
+        {
+            if (_collapsed) return; // 收起状态不存，免得下次打开是一条
+            EditorPrefs.SetString(PosKey,
+                $"{position.x},{position.y},{position.width},{position.height}");
+        }
+
+        /// <summary>
+        /// Unity 的浮动窗口没有最小化按钮，这里用「收起成一条」模拟：
+        /// 收起后只留标题栏 + 工具栏，再点一次恢复原大小。
+        /// </summary>
+        private void ToggleCollapse()
+        {
+            if (!_collapsed)
+            {
+                _expandedSize = position.size;
+                minSize = Vector2.zero;
+                maxSize = new Vector2(4000f, 4000f);
+                position = new Rect(position.x, position.y, Mathf.Max(720f, position.width), 62f);
+                _collapsed = true;
+            }
+            else
+            {
+                minSize = new Vector2(720f, 480f);
+                var w = Mathf.Max(720f, _expandedSize.x);
+                var h = Mathf.Max(480f, _expandedSize.y);
+                position = new Rect(position.x, position.y, w, h);
+                _collapsed = false;
+            }
+
+            Repaint();
         }
 
         private void TryAutoLoad()
@@ -81,16 +142,6 @@ namespace VN.EditorTools
             _charOptions = Scan(CharFolder, "t:Texture2D");
             _bgmOptions = Scan(BgmFolder, "t:AudioClip");
             _sfxOptions = Scan(SfxFolder, "t:AudioClip");
-
-            // 兼容把素材放进 Resources 的情况
-            foreach (var p in Scan("Assets/VN/Resources/VN/BG", "t:Texture2D"))
-                if (!_bgOptions.Contains(p)) _bgOptions.Add(p);
-            foreach (var p in Scan("Assets/VN/Resources/VN/Char", "t:Texture2D"))
-                if (!_charOptions.Contains(p)) _charOptions.Add(p);
-            foreach (var p in Scan("Assets/VN/Resources/VN/Audio/BGM", "t:AudioClip"))
-                if (!_bgmOptions.Contains(p)) _bgmOptions.Add(p);
-            foreach (var p in Scan("Assets/VN/Resources/VN/Audio/SFX", "t:AudioClip"))
-                if (!_sfxOptions.Contains(p)) _sfxOptions.Add(p);
         }
 
         private static List<string> Scan(string folder, string filter)
@@ -168,6 +219,9 @@ namespace VN.EditorTools
             EditorGUIUtility.labelWidth = 88f;
 
             DrawToolbar();
+
+            // 收起状态只画工具栏，省得下面内容被裁切还占布局
+            if (_collapsed) return;
             if (_script == null)
             {
                 EditorGUILayout.HelpBox("还没有打开剧本。点上面的「新建」或「打开」。", MessageType.Info);
@@ -224,6 +278,10 @@ namespace VN.EditorTools
                 if (GUILayout.Button("▶ 播放", EditorStyles.toolbarButton, GUILayout.Width(66)))
                     PlayFromSelected();
             }
+
+            GUILayout.Space(6);
+            if (GUILayout.Button(_collapsed ? "▣ 展开" : "— 收起", EditorStyles.toolbarButton, GUILayout.Width(76)))
+                ToggleCollapse();
 
             EditorGUILayout.EndHorizontal();
         }
@@ -328,6 +386,23 @@ namespace VN.EditorTools
 
                 EditorGUILayout.LabelField($"第 {_selected + 1} 行", EditorStyles.boldLabel);
 
+                // 节点信息置顶：跳转、分支树都靠它
+                EditorGUILayout.BeginVertical("box");
+                EditorGUILayout.BeginHorizontal();
+                line.nodeId = EditorGUILayout.TextField("节点 ID", line.nodeId);
+                line.nodeTitle = EditorGUILayout.TextField("显示名", line.nodeTitle);
+                EditorGUILayout.EndHorizontal();
+
+                if (string.IsNullOrWhiteSpace(line.nodeId))
+                {
+                    EditorGUILayout.LabelField("留空 = 这一行不是节点；选项跳转和分支树都靠节点 ID 定位", EditorStyles.miniLabel);
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("已被使用的节点：" + string.Join("、", CollectNodeIds()), EditorStyles.miniLabel);
+                }
+                EditorGUILayout.EndVertical();
+
                 EditorGUILayout.BeginHorizontal();
                 line.name = EditorGUILayout.TextField("说话人", line.name);
                 line.autoDelay = EditorGUILayout.FloatField("自动等待", line.autoDelay, GUILayout.Width(96));
@@ -349,6 +424,12 @@ namespace VN.EditorTools
 
                     DrawAssetPopup("音效", line.sfx, _sfxOptions, v => { line.sfx = v; _dirty = true; });
                     line.sfxVolume = EditorGUILayout.Slider("音效音量", line.sfxVolume, 0f, 1f);
+
+                    GUILayout.Space(4);
+                    line.speakerSlot = SpeakerSlotPopup(line.speakerSlot);
+                    line.transition = TransitionPopup(line.transition);
+                    using (new EditorGUI.DisabledScope(line.transition == "none"))
+                        line.transitionDuration = EditorGUILayout.Slider("转场时长（秒）", line.transitionDuration, 0.05f, 2f);
                 }
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
@@ -365,6 +446,11 @@ namespace VN.EditorTools
                 GUILayout.Space(4);
                 _cameraOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_cameraOpen, "镜头（只影响背景和立绘）");
                 if (_cameraOpen) DrawCamera(line);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+
+                GUILayout.Space(4);
+                _branchOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_branchOpen, "分支 / 选项 / 数值");
+                if (_branchOpen) DrawBranch(line);
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
                 if (EditorGUI.EndChangeCheck()) _dirty = true;
@@ -407,6 +493,12 @@ namespace VN.EditorTools
                 if (!a.hide)
                 {
                     DrawAssetPopup("图片", a.sprite, _charOptions, v => { a.sprite = v; _dirty = true; });
+
+                    EditorGUILayout.BeginHorizontal();
+                    a.character = EditorGUILayout.TextField("角色", a.character);
+                    a.expression = EditorGUILayout.TextField("表情", a.expression);
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.HelpBox("填了角色+表情会找 Char/角色/表情.png；都空则用上面的图片", MessageType.None);
 
                     EditorGUILayout.BeginHorizontal();
                     a.motion = Popup("入场", a.motion, Motions, 80f);
@@ -469,8 +561,7 @@ namespace VN.EditorTools
         }
 
         private void DrawCamera(VNLine line)
-        {
-            line.useCamera = EditorGUILayout.Toggle("启用镜头", line.useCamera);
+        {            line.useCamera = EditorGUILayout.Toggle("启用镜头", line.useCamera);
             using (new EditorGUI.DisabledScope(!line.useCamera))
             {
                 if (line.camera == null) line.camera = new VNCamera();
@@ -490,6 +581,136 @@ namespace VN.EditorTools
         }
 
         // ---------------- 资源字段 ----------------
+
+        private void DrawBranch(VNLine line)
+        {
+            line.effects = EditorGUILayout.TextField("经过时效果", line.effects);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("", GUILayout.Width(88));
+            if (GUILayout.Button("affection += 1", GUILayout.Width(120))) line.effects = "affection += 1";
+            if (GUILayout.Button("flag = 1", GUILayout.Width(90))) line.effects = "flag_met = 1";
+            if (GUILayout.Button("visit(节点)", GUILayout.Width(110))) line.effects = "visit(node_id)";
+            EditorGUILayout.EndHorizontal();
+
+            GUILayout.Space(4);
+            EditorGUILayout.LabelField("播完这行后自动跳转（一般不用填）", EditorStyles.miniBoldLabel);
+            line.gotoNode = EditorGUILayout.TextField("跳转到节点", line.gotoNode);
+            line.gotoLine = EditorGUILayout.IntField("跳转到行号（-1 = 不跳）", line.gotoLine);
+
+            GUILayout.Space(6);
+            EditorGUILayout.LabelField("选项（有选项时必须选择才能继续）", EditorStyles.boldLabel);
+            if (line.choices == null) line.choices = new List<VNChoice>();
+
+            for (int i = 0; i < line.choices.Count; i++)
+            {
+                var c = line.choices[i];
+                if (c == null) { line.choices[i] = c = new VNChoice(); }
+
+                EditorGUILayout.BeginVertical("box");
+
+                EditorGUILayout.BeginHorizontal();
+                c.text = EditorGUILayout.TextField($"选项 {i + 1}", c.text);
+                if (GUILayout.Button("✕", GUILayout.Width(24)))
+                {
+                    line.choices.RemoveAt(i);
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
+                    break;
+                }
+                EditorGUILayout.EndHorizontal();
+
+                c.targetNode = EditorGUILayout.TextField("选完后跳到节点", c.targetNode);
+                c.targetLine = EditorGUILayout.IntField("或跳到行号（-1 = 不用）", c.targetLine);
+                c.condition = EditorGUILayout.TextField("出现条件（留空=总是出现）", c.condition);
+                c.effects = EditorGUILayout.TextField("选完后的效果", c.effects);
+
+                EditorGUILayout.BeginHorizontal();
+                c.showWhenLocked = EditorGUILayout.Toggle("条件不足时也显示", c.showWhenLocked, GUILayout.Width(180));
+                if (c.showWhenLocked)
+                    c.lockedText = EditorGUILayout.TextField("显示为", c.lockedText);
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Label("", GUILayout.Width(88));
+                if (GUILayout.Button("条件 +affection", GUILayout.Width(130))) c.condition = "affection >= 3";
+                if (GUILayout.Button("条件 !visited", GUILayout.Width(130))) c.condition = "!visited(node_id)";
+                if (GUILayout.Button("效果 +affection", GUILayout.Width(130))) c.effects = "affection += 1";
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.EndVertical();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("＋ 添加选项"))
+            {
+                line.choices.Add(new VNChoice { text = "选项" });
+                _dirty = true;
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private List<string> CollectNodeIds()
+        {
+            var list = new List<string>();
+            if (_script == null || _script.lines == null) return list;
+            foreach (var l in _script.lines)
+            {
+                if (l == null || string.IsNullOrWhiteSpace(l.nodeId)) continue;
+                if (!list.Contains(l.nodeId)) list.Add(l.nodeId);
+            }
+            return list;
+        }
+
+        /// <summary>高亮人物：用中文说明，存的值仍是 left/center/right。</summary>
+        private static string SpeakerSlotPopup(string value)
+        {
+            int idx;
+            switch ((value ?? "").Trim().ToLowerInvariant())
+            {
+                case "left": idx = 1; break;
+                case "right": idx = 3; break;
+                case "center": idx = 2; break;
+                default: idx = 0; break;
+            }
+
+            idx = EditorGUILayout.Popup("高亮人物", idx, new[]
+            {
+                "（不压暗任何人）", "左边角色（left）", "中间角色（center）", "右边角色（right）"
+            });
+
+            switch (idx)
+            {
+                case 1: return "left";
+                case 2: return "center";
+                case 3: return "right";
+                default: return "";
+            }
+        }
+
+        private static string TransitionPopup(string value)
+        {
+            int idx;
+            switch ((value ?? "").Trim().ToLowerInvariant())
+            {
+                case "fadeblack": idx = 1; break;
+                case "fadewhite": idx = 2; break;
+                case "flash": idx = 3; break;
+                default: idx = 0; break;
+            }
+
+            idx = EditorGUILayout.Popup("转场效果", idx, new[]
+            {
+                "无", "黑场淡入（fadeBlack）", "白场淡入（fadeWhite）", "白闪（flash）"
+            });
+
+            switch (idx)
+            {
+                case 1: return "fadeBlack";
+                case 2: return "fadeWhite";
+                case 3: return "flash";
+                default: return "none";
+            }
+        }
 
         private void DrawAssetPopup(string label, string current, List<string> options, System.Action<string> apply)
         {

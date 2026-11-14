@@ -20,6 +20,73 @@
 | F1 | 打开 / 关闭系统页面（也能点右上角「菜单」） |
 | F5 | 快速存档（槽位 1） |
 | F9 | 快速读档（槽位 1） |
+| L / 滚轮上翻 | 打开历史记录（系统页第 4 页） |
+
+## 分支 / 数值 / 条件
+
+### 节点
+
+每一行都可以标一个节点，分支树和跳转都靠它定位：
+
+```json
+"nodeId": "door",
+"nodeTitle": "门口 · 第一次选择",
+"effects": "affection += 1",
+"gotoNode": "ending"
+```
+
+- `nodeId`：唯一 id（跳转目标）
+- `nodeTitle`：分支树里显示的名字
+- `effects`：经过这一行时执行
+- `gotoNode` / `gotoLine`：推进时无条件跳到别处（用于支线汇合）
+
+### 选项
+
+```json
+"choices": [
+  { "text": "进去坐坐", "targetNode": "inside", "effects": "affection += 2" },
+  { "text": "留在门口陪她一会", "targetNode": "stay",
+    "condition": "affection >= 2",
+    "showWhenLocked": true,
+    "lockedText": "（你们还没熟到那个地步）" }
+]
+```
+
+- 有 `choices` 的行不会自动推进，必须选
+- `condition` 不满足时：默认**隐藏**；`showWhenLocked: true` 则显示为灰色不可点
+- `targetNode` 优先，其次 `targetLine`，都没有就顺序往下
+
+### 条件表达式
+
+```
+affection >= 3
+met_alice == 1
+visited(route_a)
+!visited(route_b)
+affection >= 2 && (trust > 0 || visited(ending_a))
+```
+
+- 变量名直接写（不存在时按 0 算）
+- `visited(节点id)` 判断是否经过某节点
+- 支持 `&&` `||` `!` 和括号
+- 留空 = 总是成立
+
+### 效果语句
+
+```
+affection += 1
+trust -= 2
+flag_met = 1
+visit(route_a)
+```
+
+多条用分号：`affection += 1; flag_met = 1`
+
+### 在菜单里看路线
+
+系统页面的第三页「路线」会按时间顺序列出玩家做过的选择、跳到的场景，以及当前所有数值和已解锁节点数。没做过选择时显示空提示。
+
+`chapter02.json` 是完整示例：两个节点的两级选择、数值解锁隐藏选项、支线汇合到同一结局。
 
 ## 系统页面（右上角「菜单」或 F1）
 
@@ -29,7 +96,7 @@
 
 6 个槽位，每行有 **保存 / 读取 / 删除**。
 
-存档记录的是**完整舞台快照**：剧本路径 + 行号 + 背景 + 所有立绘（槽位 / 图片 / 偏移 / 缩放 / 着色）+ BGM 与音量 + 时间戳 + 一行预览文字。读档时先把舞台恢复到存档时的样子，再从那行重新播放台词，所以不会出现「读档后立绘没了」这种情况。
+存档记录的是**完整舞台快照**：剧本路径 + 行号 + 背景 + 所有立绘（槽位 / 图片 / 偏移 / 缩放 / 着色）+ BGM 与音量 + 数值变量 + 分支历史 + 时间戳 + 一行预览文字，另外附一张**存档缩略图**（保存时截的当前画面）。读档时先把舞台恢复到存档时的样子，再从那行重新播放台词，所以不会出现「读档后立绘没了」这种情况。
 
 存档文件：`Application.persistentDataPath/vn_saves/slot_N.json`。本项目当前位于
 
@@ -41,7 +108,55 @@ C:\Users\22776\AppData\LocalLow\DefaultCompany\nago2026_recall\vn_saves\
 
 - **音乐音量** / **音效音量** 两个滑块，拖动立即生效
 - 实际音量 = 剧本里每行给的音量 × 主音量，互不覆盖
-- 设置写进 `PlayerPrefs`（`vn.audio.bgm` / `vn.audio.sfx`），关掉游戏再开仍然保留
+- **文字速度**：0.5x ~ 2.0x，直接乘在每行的 charsPerSecond 上
+- **切换全屏**：切换窗口 / 全屏
+- 设置写进 `PlayerPrefs`（`vn.audio.bgm` / `vn.audio.sfx` / `vn.textSpeed`），关掉游戏再开仍然保留
+
+### 第 3 页 · 路线
+
+分支树：按顺序列出玩家做过的每个选择（节点 → 选了什么 → 去了哪），
+下方附当前所有数值和已解锁节点数量，方便作者自测分支逻辑。
+
+### 第 4 页 · 记录（L 键 / 滚轮上翻）
+
+按时间顺序列出已显示的台词，带说话人名和分页。最新内容在最后一页。
+
+## 演出细节
+
+### 表情切换
+
+立绘可以只写「角色 + 表情」，播放器会自动去找 `Char/角色/表情.png`：
+
+```json
+"actors": [{
+  "slot": "center",
+  "character": "she",
+  "expression": "smile"
+}]
+```
+
+查找顺序：`Char/she/smile.png` → `Char/she/smile.jpg` → `Char/she.png` → `sprite` 字段的整路径。
+
+**同一个角色换表情不会重播入场动画**（只做 0.12 秒的位置补间），换人才会走 fade/slide 等入场效果。
+
+### 说话者高亮
+
+```json
+"speakerSlot": "center"
+```
+
+当前说话的角色保持原色，其他槽位的角色自动压暗。也可以用 `line.name` 去匹配 `actor.character`（如果没填 `speakerSlot`）。
+两者都没有时不压暗，避免单人场景自己变暗。
+
+### 转场
+
+```json
+"transition": "fadeBlack",
+"transitionDuration": 0.5
+```
+
+可选 `fadeBlack`（黑场）/ `fadeWhite`（白场）/ `flash`（白闪）。
+覆盖层在主 Canvas 内渲染，**不会盖住右上角「菜单」按钮**（那个是独立的高排序 Canvas）。
 
 代码里也可以直接调：
 
@@ -70,7 +185,10 @@ Assets/VN/
 │   ├── VNAudioManager.cs        BGM 交叉淡入 / 音效
 │   ├── VNAssetLoader.cs         资源加载
 │   ├── VNSaveSystem.cs          存档读写（JSON / 6 槽位）
-│   ├── VNSystemPanel.cs         右上角菜单 + 系统页面（存档页 / 设置页）
+│   ├── VNState.cs               数值 / 已访问节点 / 条件表达式求值
+│   ├── VNEffects.cs             效果语句执行
+│   ├── VNChoicePanel.cs         运行时选项按钮
+│   ├── VNSystemPanel.cs         右上角菜单 + 系统页面（存档 / 设置 / 路线）
 │   └── Editor/
 │       ├── VNSceneBuilder.cs    一键生成场景
 │       ├── VNScriptEditorWindow.cs  剧本编辑器
@@ -79,9 +197,23 @@ Assets/VN/
 └── Fonts/fusion-pixel-12px-zh_hans.ttf  像素字体
 ```
 
-素材可以放在任意位置（当前示例用 `Assets/Arts`、`Assets/Sounds`）。
-`Assets/Arts/` 和 `Assets/Sounds/` 下的图片/音频会被自动设成正确的导入格式
+素材统一放在 `Assets/VN/Resources/VN/` 下：
+
+```
+Assets/VN/Resources/VN/
+├── BG/            背景图
+├── Char/          人物立绘（透明 PNG）
+├── Audio/BGM/     背景音乐
+├── Audio/SFX/     音效
+└── Data/          剧本 JSON
+```
+
+放在 `Resources` 下有两个好处：编辑器里能按路径加载，**打包后也能用**（`Resources.Load`）。
+`Assets/VN/Resources/` 和 `Assets/Sounds/` 下的图片/音频会被自动设成正确的导入格式
 （Sprite + Point 过滤 + 无压缩），像素图不会糊。
+
+剧本里的路径写工程内全路径，例如 `Assets/VN/Resources/VN/BG/bg_room.png`；
+加载器会自动把它转成 `Resources` 相对路径供打包后使用。
 
 ## 剧本格式
 

@@ -35,6 +35,10 @@ namespace VN
         public Image actorCenter;
         public Image actorRight;
 
+        [Header("转场")]
+        [Tooltip("全屏遮罩；留空会在运行时自动创建（不会盖住右上角菜单按钮）")]
+        public Image transitionOverlay;
+
         [Header("对话 UI")]
         public GameObject dialogueRoot;
         public GameObject namePlate;
@@ -47,12 +51,36 @@ namespace VN
         [Header("音频")]
         public VNAudioManager audioManager;
 
+        [Header("分支 / 数值")]
+        [Tooltip("选项按钮面板；留空会自动创建")]
+        public VNChoicePanel choicePanel;
+
+        [Tooltip("玩家状态（数值 + 经过的节点），存档会一起保存")]
+        public VNState state = new VNState();
+
+        [Tooltip("玩家做过的选择，分支树用")]
+        public List<VNChoiceRecord> choiceHistory = new List<VNChoiceRecord>();
+
+        [Tooltip("已显示的台词，历史记录用")]
+        public List<VNLogEntry> log = new List<VNLogEntry>();
+
+        private const int MaxLogEntries = 500;
+
+        private bool _pendingChoices;
+        private string _currentNodeId = "";
+        private string _currentNodeTitle = "";
+
         [Header("播放参数")]
         [Tooltip("剧本没写速度时使用的默认值")]
         public float defaultCharsPerSecond = 30f;
 
         [Tooltip("开启后，长按 Ctrl 会加速打字")]
         public bool ctrlToSpeedUp = true;
+
+        [Tooltip("全局文字速度倍率（系统设置里可调，PlayerPrefs 记住）")]
+        public float textSpeedMultiplier = 1f;
+
+        private const string TextSpeedKey = "vn.textSpeed";
 
         public bool AutoPlay { get; private set; }
         public int CurrentIndex => _index;
@@ -76,6 +104,8 @@ namespace VN
         private string _curBackground = "";
         private float _curBgmVolume = 0.7f;
         private readonly Dictionary<VNSlot, VNActor> _curActors = new Dictionary<VNSlot, VNActor>();
+        private readonly Dictionary<VNSlot, string> _slotCharacter = new Dictionary<VNSlot, string>();
+        private Coroutine _transitionRoutine;
 
         // 镜头
         private Vector2 _cameraBasePos = Vector2.zero;
@@ -98,6 +128,8 @@ namespace VN
         {
             // 编辑器未聚焦时 Unity 默认暂停循环，会让协程（打字机 / 淡入淡出）卡住
             Application.runInBackground = true;
+
+            textSpeedMultiplier = PlayerPrefs.GetFloat(TextSpeedKey, 1f);
 
             EnsureActorMap();
 
@@ -166,8 +198,7 @@ namespace VN
         public bool LoadScript(string assetPath)
         {
             scriptAssetPath = assetPath;
-            var textAsset = VNAssetLoader.LoadText(assetPath);
-            if (textAsset == null)
+            var textAsset = VNAssetLoader.LoadText(assetPath);            if (textAsset == null)
             {
                 Debug.LogError($"[VN] 读不到剧本：{assetPath}");
                 return false;
@@ -180,6 +211,7 @@ namespace VN
                 return false;
             }
 
+            log.Clear();
             return true;
         }
 
@@ -194,8 +226,25 @@ namespace VN
                 if (Input.GetKeyDown(KeyCode.F1)) ToggleSavePanel();
             }
 
+            // L 或滚轮上翻：打开历史记录
+            if (Input.GetKeyDown(KeyCode.L))
+            {
+                EnsureSystemPanel();
+                savePanel.OpenPage(3);
+                return;
+            }
+            if ((savePanel == null || !savePanel.IsOpen) && Input.mouseScrollDelta.y > 0.5f)
+            {
+                EnsureSystemPanel();
+                savePanel.OpenPage(3);
+                return;
+            }
+
             // 存档面板开着时不要推进剧情
             if (savePanel != null && savePanel.IsOpen) return;
+
+            // 正在等玩家选择时，点击对话不该推进
+            if (_pendingChoices) return;
 
             if (Input.GetKeyDown(KeyCode.A)) ToggleAutoPlay();
 
@@ -243,6 +292,28 @@ namespace VN
         public void Advance()
         {
             if (_script == null) return;
+            if (_pendingChoices) return; // 有选项时必须先选
+
+            // 当前行带着无条件跳转的话，先跳过去
+            if (_index >= 0 && _index < _script.lines.Count)
+            {
+                var cur = _script.lines[_index];
+                if (cur != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(cur.gotoNode))
+                    {
+                        int idx = FindLineByNode(cur.gotoNode);
+                        if (idx >= 0 && idx != _index) _index = idx - 1;
+                        else if (idx == _index) Debug.LogWarning("[VN] goto 指向自己，已忽略");
+                    }
+                    else if (cur.gotoLine >= 0)
+                    {
+                        int target = Mathf.Clamp(cur.gotoLine, 0, _script.lines.Count - 1);
+                        if (target != _index) _index = target - 1;
+                    }
+                }
+            }
+
             if (_index + 1 >= _script.lines.Count)
             {
                 Debug.Log("[VN] 剧本结束");
@@ -278,8 +349,34 @@ namespace VN
                 ApplyCamera(line);
             }
 
+            // 节点标记与效果
+            if (!string.IsNullOrWhiteSpace(line.nodeId))
+            {
+                _currentNodeId = line.nodeId.Trim();
+                _currentNodeTitle = string.IsNullOrWhiteSpace(line.nodeTitle) ? _currentNodeId : line.nodeTitle.Trim();
+                state.Visit(_currentNodeId);
+            }
+            VNEffects.Apply(line.effects, state);
+
+            _pendingChoices = line.choices != null && line.choices.Count > 0;
+            if (choicePanel != null) choicePanel.Hide();
+
+            // 历史记录
+            if (!string.IsNullOrWhiteSpace(line.text))
+            {
+                log.Add(new VNLogEntry
+                {
+                    name = line.name ?? "",
+                    text = line.text,
+                    nodeTitle = _currentNodeTitle ?? "",
+                });
+                if (log.Count > MaxLogEntries) log.RemoveAt(0);
+            }
+
             ApplyTextStyle(line);
             ApplySpeaker(line);
+            ApplySpeakerHighlight(line);
+            PlayTransition(line);
 
             SetIndicatorVisible(false);
             _fullText = line.text ?? "";
@@ -305,6 +402,7 @@ namespace VN
         {
             float cps = line.style.charsPerSecond > 0f ? line.style.charsPerSecond : defaultCharsPerSecond;
             if (cps <= 0f) cps = 30f;
+            cps *= Mathf.Clamp(textSpeedMultiplier, 0.1f, 5f);
 
             float shown = 0f;
             int len = _fullText.Length;
@@ -347,10 +445,131 @@ namespace VN
         private void OnTypingFinished(VNLine line)
         {
             _textComplete = true;
+
+            if (_pendingChoices)
+            {
+                ShowChoices(line);
+                return;
+            }
+
             SetIndicatorVisible(true);
 
             if (line.autoDelay > 0f) _autoTimer = line.autoDelay;
         }
+
+        // ---------------- 选项 ----------------
+
+        private void ShowChoices(VNLine line)
+        {
+            if (choicePanel == null) choicePanel = GetComponentInChildren<VNChoicePanel>(true);
+            if (choicePanel == null)
+            {
+                var go = new GameObject("VN Choice Panel");
+                choicePanel = go.AddComponent<VNChoicePanel>();
+                choicePanel.Init(dialogueFont);
+            }
+
+            var items = new List<VNChoiceItem>();
+            for (int i = 0; i < line.choices.Count; i++)
+            {
+                var c = line.choices[i];
+                if (c == null) continue;
+
+                bool ok = VNConditions.Evaluate(c.condition, state);
+                if (!ok && !c.showWhenLocked) continue;
+
+                items.Add(new VNChoiceItem
+                {
+                    text = ok
+                        ? c.text
+                        : (string.IsNullOrWhiteSpace(c.lockedText) ? c.text : c.lockedText),
+                    enabled = ok,
+                    index = i,
+                });
+            }
+
+            if (items.Count == 0)
+            {
+                // 没有任何可选项：不能卡死，直接往下走
+                Debug.LogWarning("[VN] 本行选项全部不满足条件，自动跳过");
+                _pendingChoices = false;
+                Advance();
+                return;
+            }
+
+            SetIndicatorVisible(false);
+            choicePanel.Show(items, OnChoicePicked);
+        }
+
+        private void OnChoicePicked(int index)
+        {
+            if (_script == null || _index < 0 || _index >= _script.lines.Count) return;
+
+            var line = _script.lines[_index];
+            if (line.choices == null || index < 0 || index >= line.choices.Count) return;
+
+            var choice = line.choices[index];
+
+            choiceHistory.Add(new VNChoiceRecord
+            {
+                nodeId = _currentNodeId,
+                nodeTitle = _currentNodeTitle,
+                choiceText = choice.text,
+                targetNode = choice.targetNode,
+                targetTitle = GetNodeTitle(choice.targetNode),
+                lineIndex = _index,
+                time = System.DateTime.Now.ToString("HH:mm:ss"),
+            });
+
+            VNEffects.Apply(choice.effects, state);
+            _pendingChoices = false;
+            JumpTo(choice);
+        }
+
+        private void JumpTo(VNChoice choice)
+        {
+            if (!string.IsNullOrWhiteSpace(choice.targetNode))
+            {
+                int idx = FindLineByNode(choice.targetNode);
+                if (idx >= 0)
+                {
+                    _index = idx - 1;
+                    Advance();
+                    return;
+                }
+                Debug.LogWarning($"[VN] 找不到节点：{choice.targetNode}");
+            }
+
+            if (choice.targetLine >= 0)
+            {
+                _index = Mathf.Clamp(choice.targetLine - 1, -1, _script.lines.Count - 1);
+                Advance();
+                return;
+            }
+
+            Advance();
+        }
+
+        public int FindLineByNode(string nodeId)
+        {
+            if (_script == null || _script.lines == null || string.IsNullOrWhiteSpace(nodeId)) return -1;
+            for (int i = 0; i < _script.lines.Count; i++)
+            {
+                var l = _script.lines[i];
+                if (l != null && l.nodeId == nodeId.Trim()) return i;
+            }
+            return -1;
+        }
+
+        public string GetNodeTitle(string nodeId)
+        {
+            int idx = FindLineByNode(nodeId);
+            if (idx < 0) return nodeId;
+            var l = _script.lines[idx];
+            return string.IsNullOrWhiteSpace(l.nodeTitle) ? l.nodeId : l.nodeTitle;
+        }
+
+        public string CurrentNodeTitle => _currentNodeTitle;
 
         private void SetIndicatorVisible(bool visible)
         {
@@ -503,10 +722,10 @@ namespace VN
                 return;
             }
 
-            var sprite = VNAssetLoader.LoadSprite(actor.sprite);
+            var sprite = ResolveActorSprite(actor);
             if (sprite == null)
             {
-                Debug.LogWarning($"[VN] 找不到立绘：{actor.sprite}");
+                Debug.LogWarning($"[VN] 找不到立绘：{actor.character}/{actor.expression} 或 {actor.sprite}");
                 return;
             }
 
@@ -515,11 +734,18 @@ namespace VN
                               && image.sprite != null
                               && image.sprite.name == sprite.name;
 
+            // 同一个角色的不同表情：直接换图，也不要播入场动画
+            bool sameCharacter = image.gameObject.activeSelf
+                                 && !string.IsNullOrWhiteSpace(actor.character)
+                                 && _slotCharacter.TryGetValue(slot, out var prevChar)
+                                 && prevChar == actor.character.Trim();
+
             image.sprite = sprite;
             image.color = VNColors.Parse(actor.tint, Color.white);
             image.preserveAspect = true;
             image.gameObject.SetActive(true);
             _curActors[slot] = CloneActor(actor);
+            _slotCharacter[slot] = string.IsNullOrWhiteSpace(actor.character) ? "" : actor.character.Trim();
 
             var rect = (RectTransform)image.transform;
             var basePos = _actorBasePos.TryGetValue(slot, out var bp) ? bp : rect.anchoredPosition;
@@ -531,6 +757,11 @@ namespace VN
             if (sameSprite)
             {
                 _actorRoutines[slot] = StartCoroutine(TweenActorTo(image, rect, targetPos, targetScale, Mathf.Max(0.01f, actor.moveDuration)));
+            }
+            else if (sameCharacter)
+            {
+                // 换表情：图已经换好，只补间位置/缩放，给一点点过渡感
+                _actorRoutines[slot] = StartCoroutine(TweenActorTo(image, rect, targetPos, targetScale, 0.12f));
             }
             else
             {
@@ -648,6 +879,167 @@ namespace VN
             if (index < 0 || index >= _script.lines.Count) return;
             _index = index;
             ShowLine(_script.lines[index]);
+        }
+
+        // ---------------- 表情 / 高亮 / 转场 ----------------
+
+        /// <summary>优先按「角色 + 表情」找图，找不到再退回 sprite 整路径。</summary>
+        private static Sprite ResolveActorSprite(VNActor actor)
+        {
+            if (actor == null) return null;
+
+            if (!string.IsNullOrWhiteSpace(actor.character))
+            {
+                var dir = "Assets/VN/Resources/VN/Char/" + actor.character.Trim();
+
+                if (!string.IsNullOrWhiteSpace(actor.expression))
+                {
+                    var stem = dir + "/" + actor.expression.Trim();
+                    var s = VNAssetLoader.LoadSprite(stem + ".png");
+                    if (s == null) s = VNAssetLoader.LoadSprite(stem + ".jpg");
+                    if (s != null) return s;
+                }
+
+                var single = VNAssetLoader.LoadSprite(dir + ".png");
+                if (single == null) single = VNAssetLoader.LoadSprite(dir + ".jpg");
+                if (single != null) return single;
+            }
+
+            return VNAssetLoader.LoadSprite(actor.sprite);
+        }
+
+        /// <summary>
+        /// 说话者高亮：当前说话的角色保持原色，其他角色压暗。
+        /// 优先用 line.speakerSlot，否则拿 line.name 去匹配 actor.character。
+        /// </summary>
+        private void ApplySpeakerHighlight(VNLine line)
+        {
+            bool hasSlot = !string.IsNullOrWhiteSpace(line.speakerSlot);
+            var speaker = hasSlot ? ParseSlot(line.speakerSlot) : VNSlot.Center;
+
+            bool anyVisible = false;
+            foreach (var kv in _actors)
+            {
+                if (kv.Value != null && kv.Value.gameObject.activeSelf) { anyVisible = true; break; }
+            }
+            if (!anyVisible) return;
+
+            bool hasNameMatch = false;
+            if (!hasSlot && !string.IsNullOrWhiteSpace(line.name))
+            {
+                foreach (var kv in _slotCharacter)
+                    if (!string.IsNullOrEmpty(kv.Value) && line.name.Contains(kv.Value)) { hasNameMatch = true; break; }
+            }
+
+            // 没有可判断的信息时不压暗，避免单人场景自己变暗
+            if (!hasSlot && !hasNameMatch)
+            {
+                foreach (var kv in _actors)
+                    if (kv.Value != null) RestoreActorTint(kv.Key, kv.Value);
+                return;
+            }
+
+            foreach (var kv in _actors)
+            {
+                var img = kv.Value;
+                if (img == null || !img.gameObject.activeSelf) continue;
+
+                bool isSpeaker = hasSlot
+                    ? kv.Key == speaker
+                    : (_slotCharacter.TryGetValue(kv.Key, out var ch) && !string.IsNullOrEmpty(ch) && line.name.Contains(ch));
+
+                if (isSpeaker) RestoreActorTint(kv.Key, img);
+                else DimActor(img);
+            }
+        }
+
+        private void RestoreActorTint(VNSlot slot, Image img)
+        {
+            var tint = _curActors.TryGetValue(slot, out var a) && a != null
+                ? VNColors.Parse(a.tint, Color.white)
+                : Color.white;
+            img.color = tint;
+        }
+
+        private static void DimActor(Image img)
+        {
+            var c = img.color;
+            img.color = new Color(c.r * 0.45f, c.g * 0.45f, c.b * 0.45f, c.a);
+        }
+
+        private void PlayTransition(VNLine line)
+        {
+            if (string.IsNullOrWhiteSpace(line.transition)) return;
+            var mode = line.transition.Trim().ToLowerInvariant();
+            if (mode == "none") return;
+
+            EnsureTransitionOverlay();
+            if (transitionOverlay == null) return;
+
+            if (_transitionRoutine != null) StopCoroutine(_transitionRoutine);
+            _transitionRoutine = StartCoroutine(TransitionRoutine(mode, Mathf.Max(0.05f, line.transitionDuration)));
+        }
+
+        private void EnsureTransitionOverlay()
+        {
+            if (transitionOverlay != null || dialogueRoot == null) return;
+
+            var canvas = dialogueRoot.GetComponentInParent<Canvas>();
+            if (canvas == null) return;
+
+            var go = new GameObject("Transition Overlay", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(canvas.transform, false);
+
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            var img = go.GetComponent<Image>();
+            img.color = new Color(0f, 0f, 0f, 0f);
+            img.raycastTarget = false;
+            go.SetActive(false);
+
+            transitionOverlay = img;
+        }
+
+        private IEnumerator TransitionRoutine(string mode, float duration)
+        {
+            var img = transitionOverlay;
+            if (img == null) yield break;
+
+            var baseColor = (mode == "fadewhite" || mode == "white" || mode == "flash") ? Color.white : Color.black;
+            float peak = mode == "flash" ? 0.85f : 1f;
+
+            img.gameObject.SetActive(true);
+            img.transform.SetAsLastSibling();
+
+            float half = duration * 0.5f;
+            float t = 0f;
+
+            while (t < half)
+            {
+                t += Time.unscaledDeltaTime;
+                float k = Mathf.Clamp01(t / half);
+                img.color = new Color(baseColor.r, baseColor.g, baseColor.b, peak * k);
+                yield return null;
+            }
+
+            img.color = new Color(baseColor.r, baseColor.g, baseColor.b, peak);
+
+            t = 0f;
+            while (t < half)
+            {
+                t += Time.unscaledDeltaTime;
+                float k = 1f - Mathf.Clamp01(t / half);
+                img.color = new Color(baseColor.r, baseColor.g, baseColor.b, peak * k);
+                yield return null;
+            }
+
+            img.color = new Color(baseColor.r, baseColor.g, baseColor.b, 0f);
+            img.gameObject.SetActive(false);
+            _transitionRoutine = null;
         }
 
         // ---------------- 镜头 ----------------
@@ -838,6 +1230,8 @@ namespace VN
                 bgmVolume = _curBgmVolume,
                 actors = new List<VNActor>(),
                 preview = BuildPreview(),
+                state = state.Clone(),
+                history = new List<VNChoiceRecord>(choiceHistory),
             };
 
             foreach (var kv in _curActors)
@@ -853,8 +1247,20 @@ namespace VN
         {
             var data = CaptureState(slot);
             bool ok = VNSaveSystem.Write(data);
+            if (ok)
+            {
+                // 等这一帧渲染完再截图，否则可能拿到黑屏
+                if (Application.isPlaying) StartCoroutine(CaptureThumbDelayed(slot));
+                else VNSaveSystem.SaveThumbnail(slot);
+            }
             ShowToast(ok ? $"已保存到槽位 {slot + 1}" : "保存失败");
             return ok;
+        }
+
+        private IEnumerator CaptureThumbDelayed(int slot)
+        {
+            yield return new WaitForEndOfFrame();
+            VNSaveSystem.SaveThumbnail(slot);
         }
 
         public bool LoadSlot(int slot)
@@ -879,6 +1285,7 @@ namespace VN
         public void DeleteSlot(int slot)
         {
             VNSaveSystem.Delete(slot);
+            VNSaveSystem.DeleteThumbnail(slot);
             ShowToast($"已删除槽位 {slot + 1}");
         }
 
@@ -913,6 +1320,15 @@ namespace VN
             }
 
             _index = Mathf.Clamp(data.lineIndex, 0, _script.lines.Count - 1);
+
+            // 恢复数值与分支历史
+            state = data.state != null ? data.state.Clone() : new VNState();
+            choiceHistory = data.history != null
+                ? new List<VNChoiceRecord>(data.history)
+                : new List<VNChoiceRecord>();
+            _pendingChoices = false;
+            if (choicePanel != null) choicePanel.Hide();
+
             ShowLine(_script.lines[_index], applyStage: false);
             return true;
         }
@@ -971,6 +1387,7 @@ namespace VN
             cg.alpha = 1f;
 
             _curActors[slot] = CloneActor(actor);
+            _slotCharacter[slot] = string.IsNullOrWhiteSpace(actor.character) ? "" : actor.character.Trim();
         }
 
         private string BuildPreview()
@@ -994,6 +1411,13 @@ namespace VN
         {
             EnsureSystemPanel();
             savePanel.Toggle();
+        }
+
+        public void SetTextSpeed(float multiplier)
+        {
+            textSpeedMultiplier = Mathf.Clamp(multiplier, 0.25f, 3f);
+            PlayerPrefs.SetFloat(TextSpeedKey, textSpeedMultiplier);
+            PlayerPrefs.Save();
         }
 
         public void ShowToast(string message)

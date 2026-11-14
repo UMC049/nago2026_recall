@@ -21,14 +21,29 @@ namespace VN
         private GameObject _root;
         private GameObject _pageSave;
         private GameObject _pageAudio;
+        private GameObject _pageRoute;
+        private GameObject _pageLog;
 
         private readonly Text[] _slotInfo = new Text[SlotCount];
-        private readonly Button[] _tabButtons = new Button[2];
+        private readonly RawImage[] _thumbs = new RawImage[SlotCount];
+        private readonly Texture2D[] _thumbTex = new Texture2D[SlotCount];
+        private readonly Button[] _tabButtons = new Button[4];
+
+        private Text _routeText;
+        private Text _routePageLabel;
+        private Text _varText;
+        private int _routePage;
+
+        private Text _logText;
+        private Text _logPageLabel;
+        private int _logPage;
 
         private Slider _bgmSlider;
         private Slider _sfxSlider;
         private Text _bgmValue;
         private Text _sfxValue;
+        private Slider _speedSlider;
+        private Text _speedValue;
 
         private static readonly Color TabActiveColor = new Color(0.86f, 0.62f, 0.32f, 1f);
         private static readonly Color TabIdleColor = new Color(0.18f, 0.2f, 0.26f, 1f);
@@ -133,11 +148,15 @@ namespace VN
             crt.sizeDelta = new Vector2(64f, 56f);
             crt.anchoredPosition = new Vector2(-28f, -26f);
 
-            // 两个页签
+            // 三个页签
             _tabButtons[0] = CreateButton(prt, "存档 / 读档", TabIdleColor, () => SetPage(0));
             PlaceTab(_tabButtons[0], 48f);
             _tabButtons[1] = CreateButton(prt, "设置", TabIdleColor, () => SetPage(1));
             PlaceTab(_tabButtons[1], 246f);
+            _tabButtons[2] = CreateButton(prt, "路线", TabIdleColor, () => SetPage(2));
+            PlaceTab(_tabButtons[2], 444f);
+            _tabButtons[3] = CreateButton(prt, "记录", TabIdleColor, () => SetPage(3));
+            PlaceTab(_tabButtons[3], 642f);
 
             _pageSave = new GameObject("PageSave", typeof(RectTransform));
             _pageSave.transform.SetParent(prt, false);
@@ -147,8 +166,18 @@ namespace VN
             _pageAudio.transform.SetParent(prt, false);
             Stretch((RectTransform)_pageAudio.transform);
 
+            _pageRoute = new GameObject("PageRoute", typeof(RectTransform));
+            _pageRoute.transform.SetParent(prt, false);
+            Stretch((RectTransform)_pageRoute.transform);
+
+            _pageLog = new GameObject("PageLog", typeof(RectTransform));
+            _pageLog.transform.SetParent(prt, false);
+            Stretch((RectTransform)_pageLog.transform);
+
             BuildSavePage((RectTransform)_pageSave.transform);
             BuildAudioPage((RectTransform)_pageAudio.transform);
+            BuildRoutePage((RectTransform)_pageRoute.transform);
+            BuildLogPage((RectTransform)_pageLog.transform);
         }
 
         private void BuildSavePage(RectTransform page)
@@ -177,11 +206,35 @@ namespace VN
             var irt = info.rectTransform;
             irt.anchorMin = Vector2.zero;
             irt.anchorMax = Vector2.one;
-            irt.offsetMin = new Vector2(20f, 8f);
+            irt.offsetMin = new Vector2(150f, 8f);
             irt.offsetMax = new Vector2(-420f, -8f);
             info.horizontalOverflow = HorizontalWrapMode.Wrap;
             info.verticalOverflow = VerticalWrapMode.Truncate;
             _slotInfo[index] = info;
+
+            // 存档缩略图
+            var thumbBg = CreateImage("ThumbBg", rrt, new Color(0.26f, 0.28f, 0.34f, 1f));
+            var brt2 = thumbBg.rectTransform;
+            brt2.anchorMin = new Vector2(0f, 0.5f);
+            brt2.anchorMax = new Vector2(0f, 0.5f);
+            brt2.pivot = new Vector2(0f, 0.5f);
+            brt2.sizeDelta = new Vector2(120f, 70f);
+            brt2.anchoredPosition = new Vector2(18f, 0f);
+            thumbBg.raycastTarget = false;
+
+            var thumbGO = new GameObject("Thumb", typeof(RectTransform), typeof(RawImage));
+            thumbGO.transform.SetParent(rrt, false);
+            var trt = (RectTransform)thumbGO.transform;
+            trt.anchorMin = new Vector2(0f, 0.5f);
+            trt.anchorMax = new Vector2(0f, 0.5f);
+            trt.pivot = new Vector2(0f, 0.5f);
+            trt.sizeDelta = new Vector2(114f, 64f);
+            trt.anchoredPosition = new Vector2(21f, 0f);
+            var raw = thumbGO.GetComponent<RawImage>();
+            raw.color = new Color(1f, 1f, 1f, 1f);
+            raw.raycastTarget = false;
+            thumbGO.SetActive(false);
+            _thumbs[index] = raw;
 
             var save = CreateButton(rrt, "保存", new Color(0.2f, 0.45f, 0.32f), () =>
             {
@@ -208,46 +261,276 @@ namespace VN
         {
             var audio = _player != null ? _player.audioManager : null;
 
-            var label1 = CreateText("BgmLabel", page, "音乐音量", 34, TextAnchor.MiddleLeft);
-            LayoutRow(label1.rectTransform, -190f);
-            _bgmValue = CreateText("BgmValue", page, "100%", 30, TextAnchor.MiddleRight);
-            LayoutRow(_bgmValue.rectTransform, -190f);
+            var label1 = CreateText("BgmLabel", page, "音乐音量", 32, TextAnchor.MiddleLeft);
+            LayoutRow(label1.rectTransform, -150f);
+            _bgmValue = CreateText("BgmValue", page, "100%", 28, TextAnchor.MiddleRight);
+            LayoutRow(_bgmValue.rectTransform, -150f);
 
             float bgmStart = audio != null ? audio.globalBgmVolume : 1f;
-            _bgmSlider = CreateSlider(page, 120f, -280f, 1020f, 44f, bgmStart, v =>
+            _bgmSlider = CreateSlider(page, 120f, -228f, 1020f, 40f, bgmStart, v =>
             {
                 if (_bgmValue != null) _bgmValue.text = Mathf.RoundToInt(v * 100f) + "%";
                 if (audio != null) audio.SetGlobalBgmVolume(v);
             });
 
-            var label2 = CreateText("SfxLabel", page, "音效音量", 34, TextAnchor.MiddleLeft);
-            LayoutRow(label2.rectTransform, -400f);
-            _sfxValue = CreateText("SfxValue", page, "100%", 30, TextAnchor.MiddleRight);
-            LayoutRow(_sfxValue.rectTransform, -400f);
+            var label2 = CreateText("SfxLabel", page, "音效音量", 32, TextAnchor.MiddleLeft);
+            LayoutRow(label2.rectTransform, -318f);
+            _sfxValue = CreateText("SfxValue", page, "100%", 28, TextAnchor.MiddleRight);
+            LayoutRow(_sfxValue.rectTransform, -318f);
 
             float sfxStart = audio != null ? audio.globalSfxVolume : 1f;
-            _sfxSlider = CreateSlider(page, 120f, -490f, 1020f, 44f, sfxStart, v =>
+            _sfxSlider = CreateSlider(page, 120f, -396f, 1020f, 40f, sfxStart, v =>
             {
                 if (_sfxValue != null) _sfxValue.text = Mathf.RoundToInt(v * 100f) + "%";
                 if (audio != null) audio.SetGlobalSfxVolume(v);
             });
 
-            var tip = CreateText("Tip", page, "音量设置会立即生效，并在下次启动时保留。", 22, TextAnchor.MiddleLeft);
+            // 文字速度（0.5x ~ 2.0x，滑块内部用 0~1）
+            var label3 = CreateText("SpeedLabel", page, "文字速度", 32, TextAnchor.MiddleLeft);
+            LayoutRow(label3.rectTransform, -486f);
+            _speedValue = CreateText("SpeedValue", page, "1.0x", 28, TextAnchor.MiddleRight);
+            LayoutRow(_speedValue.rectTransform, -486f);
+
+            float speedNow = _player != null ? _player.textSpeedMultiplier : 1f;
+            float speedSlider = Mathf.Clamp01((speedNow - 0.5f) / 1.5f);
+            _speedSlider = CreateSlider(page, 120f, -564f, 1020f, 40f, speedSlider, v =>
+            {
+                float mul = Mathf.Lerp(0.5f, 2.0f, v);
+                if (_speedValue != null) _speedValue.text = mul.ToString("0.0") + "x";
+                if (_player != null) _player.SetTextSpeed(mul);
+            });
+
+            var fsBtn = CreateButton(page, "切换全屏", TabIdleColor, () =>
+            {
+                Screen.fullScreen = !Screen.fullScreen;
+            });
+            var frt = (RectTransform)fsBtn.transform;
+            frt.anchorMin = new Vector2(0f, 1f);
+            frt.anchorMax = new Vector2(0f, 1f);
+            frt.pivot = new Vector2(0f, 1f);
+            frt.sizeDelta = new Vector2(230f, 52f);
+            frt.anchoredPosition = new Vector2(120f, -650f);
+
+            var tip = CreateText("Tip", page, "设置立即生效，并在下次启动时保留。", 22, TextAnchor.MiddleLeft);
             var trt = tip.rectTransform;
             trt.anchorMin = new Vector2(0f, 1f);
             trt.anchorMax = new Vector2(1f, 1f);
             trt.pivot = new Vector2(0.5f, 1f);
-            trt.offsetMin = new Vector2(120f, -650f);
-            trt.offsetMax = new Vector2(-120f, -610f);
+            trt.offsetMin = new Vector2(380f, -700f);
+            trt.offsetMax = new Vector2(-120f, -660f);
             tip.color = new Color(0.6f, 0.66f, 0.76f);
         }
 
         // ---------------- 刷新 ----------------
 
+        private void BuildRoutePage(RectTransform page)
+        {
+            var title = CreateText("RouteTitle", page, "剧情路线（你走过的分支）", 30, TextAnchor.MiddleLeft);
+            var trt = title.rectTransform;
+            trt.anchorMin = new Vector2(0f, 1f);
+            trt.anchorMax = new Vector2(1f, 1f);
+            trt.pivot = new Vector2(0.5f, 1f);
+            trt.offsetMin = new Vector2(60f, -240f);
+            trt.offsetMax = new Vector2(-60f, -190f);
+            title.color = new Color(1f, 0.9f, 0.7f);
+
+            var body = CreateText("RouteBody", page, "", 24, TextAnchor.UpperLeft);
+            var brt = body.rectTransform;
+            brt.anchorMin = Vector2.zero;
+            brt.anchorMax = Vector2.one;
+            brt.offsetMin = new Vector2(60f, 110f);
+            brt.offsetMax = new Vector2(-60f, -250f);
+            body.horizontalOverflow = HorizontalWrapMode.Wrap;
+            body.verticalOverflow = VerticalWrapMode.Truncate;
+            _routeText = body;
+
+            var prev = CreateButton(page, "上一页", TabIdleColor, () =>
+            {
+                _routePage = Mathf.Max(0, _routePage - 1);
+                RefreshRoutePage();
+            });
+            PlaceBottom(prev, 60f, 44f, 130f);
+
+            var next = CreateButton(page, "下一页", TabIdleColor, () =>
+            {
+                _routePage++;
+                RefreshRoutePage();
+            });
+            PlaceBottom(next, 206f, 44f, 130f);
+
+            _routePageLabel = CreateText("PageLabel", page, "", 22, TextAnchor.MiddleLeft);
+            var plrt = _routePageLabel.rectTransform;
+            plrt.anchorMin = new Vector2(0f, 0f);
+            plrt.anchorMax = new Vector2(1f, 0f);
+            plrt.pivot = new Vector2(0.5f, 0f);
+            plrt.offsetMin = new Vector2(360f, 52f);
+            plrt.offsetMax = new Vector2(-60f, 88f);
+            _routePageLabel.color = new Color(0.65f, 0.7f, 0.8f);
+        }
+
+        private static void PlaceBottom(Button button, float left, float bottom, float width)
+        {
+            var rt = (RectTransform)button.transform;
+            rt.anchorMin = new Vector2(0f, 0f);
+            rt.anchorMax = new Vector2(0f, 0f);
+            rt.pivot = new Vector2(0f, 0f);
+            rt.sizeDelta = new Vector2(width, 48f);
+            rt.anchoredPosition = new Vector2(left, bottom);
+        }
+
+        private void RefreshRoutePage()
+        {
+            if (_routeText == null || _player == null) return;
+
+            var history = _player.choiceHistory;
+            int total = history != null ? history.Count : 0;
+            const int perPage = 8;
+            int pages = Mathf.Max(1, Mathf.CeilToInt(total / (float)perPage));
+            _routePage = Mathf.Clamp(_routePage, 0, pages - 1);
+
+            var sb = new System.Text.StringBuilder();
+
+            if (total == 0)
+            {
+                sb.AppendLine("<color=#7A8296>还没有做过任何选择。</color>");
+            }
+            else
+            {
+                int start = _routePage * perPage;
+                int end = Mathf.Min(start + perPage, total);
+                for (int i = start; i < end; i++)
+                {
+                    var r = history[i];
+                    string node = string.IsNullOrEmpty(r.nodeTitle) ? "（未标记节点）" : r.nodeTitle;
+                    string target = string.IsNullOrEmpty(r.targetTitle) ? "（下一行）" : r.targetTitle;
+
+                    sb.AppendLine($"<color=#FFD98A>{i + 1}. {node}</color>");
+                    sb.AppendLine($"    选择了「{r.choiceText}」");
+                    sb.AppendLine($"    → {target}   <size=20><color=#7A8296>{r.time}</color></size>");
+                }
+            }
+
+            if (_player.state != null && _player.state.numbers.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("<color=#9AA3B8>当前数值</color>");
+                foreach (var n in _player.state.numbers)
+                    sb.AppendLine($"    {n.key} = {n.value:0.##}");
+            }
+
+            if (_player.state != null && _player.state.visited.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"<color=#9AA3B8>已解锁节点：{_player.state.visited.Count} 个</color>");
+            }
+
+            _routeText.text = sb.ToString();
+
+            if (_routePageLabel != null)
+            {
+                _routePageLabel.text = total == 0
+                    ? ""
+                    : $"第 {_routePage + 1} / {pages} 页　　共 {total} 次选择";
+            }
+        }
+
+        private void BuildLogPage(RectTransform page)
+        {
+            var title = CreateText("LogTitle", page, "历史记录", 30, TextAnchor.MiddleLeft);
+            var trt = title.rectTransform;
+            trt.anchorMin = new Vector2(0f, 1f);
+            trt.anchorMax = new Vector2(1f, 1f);
+            trt.pivot = new Vector2(0.5f, 1f);
+            trt.offsetMin = new Vector2(60f, -240f);
+            trt.offsetMax = new Vector2(-60f, -190f);
+            title.color = new Color(1f, 0.9f, 0.7f);
+
+            var body = CreateText("LogBody", page, "", 26, TextAnchor.UpperLeft);
+            var brt = body.rectTransform;
+            brt.anchorMin = Vector2.zero;
+            brt.anchorMax = Vector2.one;
+            brt.offsetMin = new Vector2(60f, 110f);
+            brt.offsetMax = new Vector2(-60f, -250f);
+            body.horizontalOverflow = HorizontalWrapMode.Wrap;
+            body.verticalOverflow = VerticalWrapMode.Truncate;
+            _logText = body;
+
+            var prev = CreateButton(page, "上一页", TabIdleColor, () =>
+            {
+                _logPage = Mathf.Max(0, _logPage - 1);
+                RefreshLogPage();
+            });
+            PlaceBottom(prev, 60f, 44f, 130f);
+
+            var next = CreateButton(page, "下一页", TabIdleColor, () =>
+            {
+                _logPage++;
+                RefreshLogPage();
+            });
+            PlaceBottom(next, 206f, 44f, 130f);
+
+            _logPageLabel = CreateText("LogPageLabel", page, "", 22, TextAnchor.MiddleLeft);
+            var plrt = _logPageLabel.rectTransform;
+            plrt.anchorMin = new Vector2(0f, 0f);
+            plrt.anchorMax = new Vector2(1f, 0f);
+            plrt.pivot = new Vector2(0.5f, 0f);
+            plrt.offsetMin = new Vector2(360f, 52f);
+            plrt.offsetMax = new Vector2(-60f, 88f);
+            _logPageLabel.color = new Color(0.65f, 0.7f, 0.8f);
+        }
+
+        private void RefreshLogPage()
+        {
+            if (_logText == null || _player == null) return;
+
+            var log = _player.log;
+            int total = log != null ? log.Count : 0;
+            const int perPage = 7;
+            int pages = Mathf.Max(1, Mathf.CeilToInt(total / (float)perPage));
+            _logPage = Mathf.Clamp(_logPage, 0, pages - 1);
+
+            var sb = new System.Text.StringBuilder();
+            if (total == 0)
+            {
+                sb.AppendLine("<color=#7A8296>还没有任何台词记录。</color>");
+            }
+            else
+            {
+                int start = _logPage * perPage;
+                int end = Mathf.Min(start + perPage, total);
+                for (int i = start; i < end; i++)
+                {
+                    var e = log[i];
+                    if (!string.IsNullOrEmpty(e.name))
+                        sb.AppendLine($"<color=#FFD98A>{e.name}</color>");
+                    sb.AppendLine(e.text);
+                    sb.AppendLine();
+                }
+            }
+
+            _logText.text = sb.ToString();
+
+            if (_logPageLabel != null)
+                _logPageLabel.text = total == 0 ? "" : $"第 {_logPage + 1} / {pages} 页　　共 {total} 条";
+        }
+
+        /// <summary>从外部直接打开某一页（记录页用 L 键 / 滚轮打开）。</summary>
+        public void OpenPage(int index)
+        {
+            if (!IsOpen) Open();
+            if (index == 3) _logPage = int.MaxValue;
+            SetPage(index);
+        }
+
         private void SetPage(int index)
         {
             if (_pageSave != null) _pageSave.SetActive(index == 0);
             if (_pageAudio != null) _pageAudio.SetActive(index == 1);
+            if (_pageRoute != null) _pageRoute.SetActive(index == 2);
+            if (_pageLog != null) _pageLog.SetActive(index == 3);
+
+            if (index == 2) RefreshRoutePage();
+            if (index == 3) RefreshLogPage();
 
             for (int i = 0; i < _tabButtons.Length; i++)
             {
@@ -265,6 +548,14 @@ namespace VN
             if (_sfxSlider != null) _sfxSlider.SetValueWithoutNotify(audio.globalSfxVolume);
             if (_bgmValue != null) _bgmValue.text = Mathf.RoundToInt(audio.globalBgmVolume * 100f) + "%";
             if (_sfxValue != null) _sfxValue.text = Mathf.RoundToInt(audio.globalSfxVolume * 100f) + "%";
+
+            if (_player != null)
+            {
+                if (_speedSlider != null)
+                    _speedSlider.SetValueWithoutNotify(Mathf.Clamp01((_player.textSpeedMultiplier - 0.5f) / 1.5f));
+                if (_speedValue != null)
+                    _speedValue.text = _player.textSpeedMultiplier.ToString("0.0") + "x";
+            }
         }
 
         private void RefreshSavePage()
@@ -283,7 +574,38 @@ namespace VN
                     var when = string.IsNullOrEmpty(data.savedAt) ? "" : data.savedAt;
                     _slotInfo[i].text = $"<color=#FFD98A>槽位 {i + 1}</color>　<size=22><color=#9AA3B8>{when}</color></size>\n{data.preview}";
                 }
+
+                RefreshThumb(i, data != null && !data.IsEmpty);
             }
+        }
+
+        private void RefreshThumb(int slot, bool hasSave)
+        {
+            var raw = _thumbs[slot];
+            if (raw == null) return;
+
+            if (_thumbTex[slot] != null)
+            {
+                Destroy(_thumbTex[slot]);
+                _thumbTex[slot] = null;
+            }
+
+            if (!hasSave)
+            {
+                raw.gameObject.SetActive(false);
+                return;
+            }
+
+            var tex = VNSaveSystem.LoadThumbnail(slot);
+            if (tex == null)
+            {
+                raw.gameObject.SetActive(false);
+                return;
+            }
+
+            _thumbTex[slot] = tex;
+            raw.texture = tex;
+            raw.gameObject.SetActive(true);
         }
 
         // ---------------- 布局工具 ----------------

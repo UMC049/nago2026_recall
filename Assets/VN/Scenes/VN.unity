@@ -1865,9 +1865,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e0f01804dcfdc4a4892e8c597bae0488, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  scriptAssetPath: Assets/VN/Resources/VN/Data/chapter01.json
+  scriptAssetPath: Assets/VN/Resources/VN/Data/chapter02.json
   playOnStart: 1
-  startLineIndex: 5
+  startLineIndex: 0
   stageRoot: {fileID: 1003458181}
   backgroundA: {fileID: 948948951}
   backgroundB: {fileID: 333552647}
@@ -1882,6 +1882,11 @@ MonoBehaviour:
   nextIndicator: {fileID: 467487849}
   dialogueFont: {fileID: 12800000, guid: 6367042b81d153344b6a61601013e3c9, type: 3}
   audioManager: {fileID: 2066169269}
+  choicePanel: {fileID: 0}
+  state:
+    numbers: []
+    visited: []
+  choiceHistory: []
   defaultCharsPerSecond: 30
   ctrlToSpeedUp: 1
   enableSaveHotkeys: 1
