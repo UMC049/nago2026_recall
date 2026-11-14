@@ -19,6 +19,13 @@ namespace VN.EditorTools
 
         private bool _collapsed;
         private Vector2 _expandedSize = new Vector2(1000f, 700f);
+
+        // 撤销 / 重做：存整份剧本的 JSON 快照
+        private readonly List<string> _undoStack = new List<string>();
+        private readonly List<string> _redoStack = new List<string>();
+        private const int MaxUndo = 30;
+
+        private static readonly KeyCode[] NoKeys = new KeyCode[0];
         private const string BgFolder = "Assets/VN/Resources/VN/BG";
         private const string CharFolder = "Assets/VN/Resources/VN/Char";
         private const string BgmFolder = "Assets/VN/Resources/VN/Audio/BGM";
@@ -37,12 +44,15 @@ namespace VN.EditorTools
         private bool _actorOpen = true;
         private bool _styleOpen = true;
         private bool _cameraOpen = true;
+        private bool _stepsOpen = true;
         private bool _branchOpen = true;
 
         private List<string> _bgOptions = new List<string>();
         private List<string> _charOptions = new List<string>();
         private List<string> _bgmOptions = new List<string>();
         private List<string> _sfxOptions = new List<string>();
+        private List<string> _voiceOptions = new List<string>();
+        private List<string> _fontOptions = new List<string>();
 
         private static readonly string[] Motions = { "fade", "none", "slideUp", "slideSide", "bounce", "pop" };
         private static readonly string[] Effects = { "none", "shake", "wave", "pulse", "glitch" };
@@ -142,6 +152,8 @@ namespace VN.EditorTools
             _charOptions = Scan(CharFolder, "t:Texture2D");
             _bgmOptions = Scan(BgmFolder, "t:AudioClip");
             _sfxOptions = Scan(SfxFolder, "t:AudioClip");
+            _voiceOptions = Scan("Assets/VN/Resources/VN/Audio/Voice", "t:AudioClip");
+            _fontOptions = Scan("Assets/VN/Fonts", "t:Font");
         }
 
         private static List<string> Scan(string folder, string filter)
@@ -179,6 +191,8 @@ namespace VN.EditorTools
             _path = DefaultPath;
             _selected = 0;
             _dirty = true;
+            _undoStack.Clear();
+            _redoStack.Clear();
         }
 
         private void Load(string path)
@@ -191,6 +205,8 @@ namespace VN.EditorTools
                 _path = path;
                 _selected = _script.lines.Count > 0 ? 0 : -1;
                 _dirty = false;
+                _undoStack.Clear();
+                _redoStack.Clear();
             }
             catch (System.Exception ex)
             {
@@ -213,10 +229,86 @@ namespace VN.EditorTools
 
         // ---------------- GUI ----------------
 
+        // ---------------- 撤销 / 重做 ----------------
+
+        /// <summary>在改动之前调用，把当前状态压入撤销栈。</summary>
+        private void PushUndo()
+        {
+            if (_script == null) return;
+
+            var snap = JsonUtility.ToJson(_script);
+            if (_undoStack.Count > 0 && _undoStack[_undoStack.Count - 1] == snap) return;
+
+            _undoStack.Add(snap);
+            if (_undoStack.Count > MaxUndo) _undoStack.RemoveAt(0);
+            _redoStack.Clear();
+        }
+
+        private void Undo()
+        {
+            if (_script == null || _undoStack.Count == 0)
+            {
+                ShowNotification(new GUIContent("没有可撤销的操作"));
+                return;
+            }
+
+            _redoStack.Add(JsonUtility.ToJson(_script));
+
+            var snap = _undoStack[_undoStack.Count - 1];
+            _undoStack.RemoveAt(_undoStack.Count - 1);
+
+            _script = JsonUtility.FromJson<VNScript>(snap) ?? _script;
+            if (_script.lines == null) _script.lines = new List<VNLine>();
+
+            _selected = Mathf.Clamp(_selected, -1, _script.lines.Count - 1);
+            _dirty = true;
+            Repaint();
+        }
+
+        private void Redo()
+        {
+            if (_script == null || _redoStack.Count == 0)
+            {
+                ShowNotification(new GUIContent("没有可恢复的操作"));
+                return;
+            }
+
+            _undoStack.Add(JsonUtility.ToJson(_script));
+
+            var snap = _redoStack[_redoStack.Count - 1];
+            _redoStack.RemoveAt(_redoStack.Count - 1);
+
+            _script = JsonUtility.FromJson<VNScript>(snap) ?? _script;
+            if (_script.lines == null) _script.lines = new List<VNLine>();
+
+            _selected = Mathf.Clamp(_selected, -1, _script.lines.Count - 1);
+            _dirty = true;
+            Repaint();
+        }
+
+        private void HandleUndoKeys()
+        {
+            var e = Event.current;
+            if (e == null || e.type != EventType.KeyDown || !e.control) return;
+
+            if (e.keyCode == KeyCode.Z)
+            {
+                Undo();
+                e.Use();
+            }
+            else if (e.keyCode == KeyCode.Y)
+            {
+                Redo();
+                e.Use();
+            }
+        }
+
         private void OnGUI()
         {
             // 标签别占太宽，把空间留给控件
             EditorGUIUtility.labelWidth = 88f;
+
+            HandleUndoKeys();
 
             DrawToolbar();
 
@@ -259,6 +351,17 @@ namespace VN.EditorTools
             using (new EditorGUI.DisabledScope(_script == null))
             {
                 if (GUILayout.Button("保存", EditorStyles.toolbarButton, GUILayout.Width(52))) Save();
+            }
+
+            GUILayout.Space(6);
+
+            using (new EditorGUI.DisabledScope(_script == null || _undoStack.Count == 0))
+            {
+                if (GUILayout.Button("↶ 撤销", EditorStyles.toolbarButton, GUILayout.Width(62))) Undo();
+            }
+            using (new EditorGUI.DisabledScope(_script == null || _redoStack.Count == 0))
+            {
+                if (GUILayout.Button("↷ 重做", EditorStyles.toolbarButton, GUILayout.Width(62))) Redo();
             }
 
             GUILayout.Space(10);
@@ -309,6 +412,7 @@ namespace VN.EditorTools
                     var rect = GUILayoutUtility.GetRect(new GUIContent(text), style, GUILayout.Height(24));
                     if (GUI.Button(rect, text, style))
                     {
+                        if (i != _selected) PushUndo();
                         _selected = i;
                         _detailScroll = Vector2.zero;
                     }
@@ -320,6 +424,7 @@ namespace VN.EditorTools
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("＋ 新行"))
             {
+                PushUndo();
                 _script.lines.Insert(_selected + 1 <= 0 ? _script.lines.Count : _selected + 1, CloneOf(CurrentLine()));
                 _selected = Mathf.Clamp(_selected + 1, 0, _script.lines.Count - 1);
                 _dirty = true;
@@ -329,12 +434,14 @@ namespace VN.EditorTools
             {
                 if (GUILayout.Button("⧉ 复制"))
                 {
+                    PushUndo();
                     _script.lines.Insert(_selected + 1, CloneOf(CurrentLine()));
                     _selected++;
                     _dirty = true;
                 }
                 if (GUILayout.Button("✕ 删除"))
                 {
+                    PushUndo();
                     _script.lines.RemoveAt(_selected);
                     _selected = Mathf.Clamp(_selected, 0, _script.lines.Count - 1);
                     _dirty = true;
@@ -347,6 +454,7 @@ namespace VN.EditorTools
             {
                 if (GUILayout.Button("↑ 上移"))
                 {
+                    PushUndo();
                     (_script.lines[_selected - 1], _script.lines[_selected]) = (_script.lines[_selected], _script.lines[_selected - 1]);
                     _selected--;
                     _dirty = true;
@@ -356,6 +464,7 @@ namespace VN.EditorTools
             {
                 if (GUILayout.Button("↓ 下移"))
                 {
+                    PushUndo();
                     (_script.lines[_selected + 1], _script.lines[_selected]) = (_script.lines[_selected], _script.lines[_selected + 1]);
                     _selected++;
                     _dirty = true;
@@ -380,6 +489,8 @@ namespace VN.EditorTools
             using (var scroll = new EditorGUILayout.ScrollViewScope(_detailScroll))
             {
                 _detailScroll = scroll.scrollPosition;
+
+                SyncPlayerDefaults();
 
                 var line = _script.lines[_selected];
                 EditorGUI.BeginChangeCheck();
@@ -410,6 +521,7 @@ namespace VN.EditorTools
 
                 EditorGUILayout.LabelField("台词");
                 line.text = EditorGUILayout.TextArea(line.text, GUILayout.MinHeight(56));
+                EditorGUILayout.LabelField("停顿标记：[p:0.8] = 停 0.8 秒，如「……[p:1.2]你来了。」", EditorStyles.miniLabel);
                 line.note = EditorGUILayout.TextField("备注", line.note);
 
                 GUILayout.Space(6);
@@ -422,6 +534,18 @@ namespace VN.EditorTools
                     DrawAssetPopup("BGM", line.bgm, _bgmOptions, v => { line.bgm = v; _dirty = true; });
                     line.bgmVolume = EditorGUILayout.Slider("BGM 音量", line.bgmVolume, 0f, 1f);
 
+                    line.bgmAction = BgmActionPopup(line.bgmAction);
+                    line.bgmFade = EditorGUILayout.Slider("淡入 / 淡出（秒）", line.bgmFade, 0.05f, 5f);
+
+                    if (line.bgmAction == "stop" || line.bgmAction == "pitch")
+                    {
+                        line.bgmPitch = EditorGUILayout.Slider("目标音调", line.bgmPitch, 0.3f, 2f);
+                        line.bgmPitchDuration = EditorGUILayout.Slider("变调时长（秒，0 = 立即）", line.bgmPitchDuration, 0f, 5f);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(line.bgm) && line.bgmAction != "keep")
+                        EditorGUILayout.HelpBox("填了 BGM 音乐时，「指令」会被忽略，直接播放这首。", MessageType.None);
+
                     DrawAssetPopup("音效", line.sfx, _sfxOptions, v => { line.sfx = v; _dirty = true; });
                     line.sfxVolume = EditorGUILayout.Slider("音效音量", line.sfxVolume, 0f, 1f);
 
@@ -430,6 +554,20 @@ namespace VN.EditorTools
                     line.transition = TransitionPopup(line.transition);
                     using (new EditorGUI.DisabledScope(line.transition == "none"))
                         line.transitionDuration = EditorGUILayout.Slider("转场时长（秒）", line.transitionDuration, 0.05f, 2f);
+
+                    line.stageTiming = StageTimingPopup(line.stageTiming);
+
+                    GUILayout.Space(4);
+                    DrawAssetPopup("默认说话音", _playerDefaultVoice, _voiceOptions, v =>
+                    {
+                        ApplyDefaultVoice(v);
+                    });
+                    EditorGUILayout.LabelField("角色没单独配语音时用这个（写在 VNPlayer 上）", EditorStyles.miniLabel);
+
+                    GUILayout.Space(4);
+                    _cameraOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_cameraOpen, "镜头（只影响背景与立绘）");
+                    if (_cameraOpen) DrawCamera(line);
+                    EditorGUILayout.EndFoldoutHeaderGroup();
                 }
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
@@ -444,8 +582,8 @@ namespace VN.EditorTools
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
                 GUILayout.Space(4);
-                _cameraOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_cameraOpen, "镜头（只影响背景和立绘）");
-                if (_cameraOpen) DrawCamera(line);
+                _stepsOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_stepsOpen, "演出顺序表（留空 = 全部同时）");
+                if (_stepsOpen) DrawSteps(line);
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
                 GUILayout.Space(4);
@@ -510,6 +648,19 @@ namespace VN.EditorTools
                     a.offsetY = EditorGUILayout.FloatField("Y", a.offsetY, GUILayout.Width(74));
                     a.scale = EditorGUILayout.FloatField("缩放", a.scale, GUILayout.Width(86));
                     EditorGUILayout.EndHorizontal();
+
+                    GUILayout.Space(2);
+                    DrawAssetPopup("说话音", a.voice, _voiceOptions, v => { a.voice = v; _dirty = true; });
+                    EditorGUILayout.BeginHorizontal();
+                    a.voiceMode = Popup("模式", string.IsNullOrWhiteSpace(a.voiceMode) ? "char" : a.voiceMode,
+                        new[] { "char", "loop" }, 44f);
+                    a.voiceVolume = EditorGUILayout.Slider("音量", a.voiceVolume, 0f, 1f, GUILayout.Width(150));
+                    a.voicePitchRandom = EditorGUILayout.Slider("抖动", a.voicePitchRandom, 0f, 0.3f, GUILayout.Width(150));
+                    EditorGUILayout.EndHorizontal();
+                    if (a.voiceEveryNChars < 1) a.voiceEveryNChars = 1;
+                    a.voiceEveryNChars = EditorGUILayout.IntSlider("每隔几个字", a.voiceEveryNChars, 1, 6);
+
+                    DrawFontPopup("角色字体", a.font, v => { a.font = v; _dirty = true; });
                 }
 
                 EditorGUILayout.EndVertical();
@@ -530,6 +681,7 @@ namespace VN.EditorTools
             if (line.style == null) line.style = new VNTextStyle();
 
             line.style.fontSize = EditorGUILayout.IntSlider("字号", line.style.fontSize, 8, 96);
+            DrawFontPopup("字体", line.style.font, v => { line.style.font = v; _dirty = true; });
 
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("常用", GUILayout.Width(36));
@@ -582,6 +734,100 @@ namespace VN.EditorTools
 
         // ---------------- 资源字段 ----------------
 
+        private void DrawSteps(VNLine line)
+        {
+            if (line.steps == null) line.steps = new List<VNStageStep>();
+
+            EditorGUILayout.LabelField("时间(秒)  备注      同一行的勾选会同时发生", EditorStyles.miniLabel);
+
+            for (int i = 0; i < line.steps.Count; i++)
+            {
+                var s = line.steps[i];
+                if (s == null) { line.steps[i] = s = new VNStageStep(); }
+
+                EditorGUILayout.BeginHorizontal();
+
+                s.at = EditorGUILayout.FloatField(s.at, GUILayout.Width(42));
+                s.label = EditorGUILayout.TextField(s.label, GUILayout.Width(92));
+
+                s.background = GUILayout.Toggle(s.background, "背景", GUILayout.Width(46));
+                s.actors = GUILayout.Toggle(s.actors, "立绘", GUILayout.Width(46));
+                s.camera = GUILayout.Toggle(s.camera, "镜头", GUILayout.Width(46));
+                s.transition = GUILayout.Toggle(s.transition, "转场", GUILayout.Width(46));
+                s.text = GUILayout.Toggle(s.text, "文字", GUILayout.Width(46));
+                s.sfx = GUILayout.Toggle(s.sfx, "音效", GUILayout.Width(46));
+                s.bgm = GUILayout.Toggle(s.bgm, "BGM", GUILayout.Width(52));
+
+                if (GUILayout.Button("✕", GUILayout.Width(22)))
+                {
+                    PushUndo();
+                    line.steps.RemoveAt(i);
+                    break;
+                }
+
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("＋ 添加步骤", GUILayout.Width(110)))
+            {
+                PushUndo();
+                line.steps.Add(new VNStageStep
+                {
+                    at = line.steps.Count == 0 ? 0f : line.steps[line.steps.Count - 1].at + 0.6f,
+                    label = line.steps.Count == 0 ? "开场" : "下一步",
+                    text = line.steps.Count == 0,
+                });
+            }
+            if (line.steps.Count > 0 && GUILayout.Button("清空顺序表", GUILayout.Width(100)))
+            {
+                PushUndo();
+                line.steps.Clear();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (line.steps.Count > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    "按时间从小到大执行；同一行勾多个动作 = 同时开始。\n" +
+                    "没有「文字」步骤时会自动在序列结束时开始打字。",
+                    MessageType.None);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    "留空 = 按默认顺序：背景 / 立绘 / 镜头立刻应用，文字随后开始。\n\n" +
+                    "示例（三级演出，适合「先演后说」）：\n" +
+                    "  0.0s    转场 + BGM                 ← 先黑场\n" +
+                    "  0.35s   背景 + 立绘 + 镜头 + 音效   ← 换景并推镜\n" +
+                    "  1.2s    文字                       ← 最后开口说话",
+                    MessageType.Info);
+
+                if (GUILayout.Button("一键填入这个示例", GUILayout.Height(24)))
+                {
+                    PushUndo();
+                    line.steps.Add(new VNStageStep
+                    {
+                        at = 0f, label = "黑场", transition = true, bgm = true,
+                    });
+                    line.steps.Add(new VNStageStep
+                    {
+                        at = 0.35f, label = "换景推镜", background = true, actors = true,
+                        camera = true, sfx = true,
+                    });
+                    line.steps.Add(new VNStageStep
+                    {
+                        at = 1.2f, label = "开口", text = true,
+                    });
+                    _dirty = true;
+                }
+
+                EditorGUILayout.LabelField(
+                    "提示：这些动作要生效，这一行本身得配好背景 / 立绘 / 镜头 / 转场 / 音效。",
+                    EditorStyles.miniLabel);
+            }
+        }
+
         private void DrawBranch(VNLine line)
         {
             line.effects = EditorGUILayout.TextField("经过时效果", line.effects);
@@ -612,6 +858,7 @@ namespace VN.EditorTools
                 c.text = EditorGUILayout.TextField($"选项 {i + 1}", c.text);
                 if (GUILayout.Button("✕", GUILayout.Width(24)))
                 {
+                    PushUndo();
                     line.choices.RemoveAt(i);
                     EditorGUILayout.EndHorizontal();
                     EditorGUILayout.EndVertical();
@@ -643,6 +890,7 @@ namespace VN.EditorTools
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("＋ 添加选项"))
             {
+                PushUndo();
                 line.choices.Add(new VNChoice { text = "选项" });
                 _dirty = true;
             }
@@ -659,6 +907,43 @@ namespace VN.EditorTools
                 if (!list.Contains(l.nodeId)) list.Add(l.nodeId);
             }
             return list;
+        }
+
+        private static string StageTimingPopup(string value)
+        {
+            int idx = (value ?? "").Trim().ToLowerInvariant() == "wait" ? 1 : 0;
+
+            idx = EditorGUILayout.Popup("舞台与文字", idx, new[]
+            {
+                "同时开始（默认）", "等舞台播完再打字（先演后说）"
+            });
+
+            return idx == 1 ? "wait" : "parallel";
+        }
+
+        private static string BgmActionPopup(string value)
+        {
+            int idx;
+            switch ((value ?? "").Trim().ToLowerInvariant())
+            {
+                case "stop": idx = 1; break;
+                case "pitch": idx = 2; break;
+                case "restart": idx = 3; break;
+                default: idx = 0; break;
+            }
+
+            idx = EditorGUILayout.Popup("BGM 指令", idx, new[]
+            {
+                "保持当前（不变）", "停止 BGM", "只改变音调", "重新播放"
+            });
+
+            switch (idx)
+            {
+                case 1: return "stop";
+                case 2: return "pitch";
+                case 3: return "restart";
+                default: return "keep";
+            }
         }
 
         /// <summary>高亮人物：用中文说明，存的值仍是 left/center/right。</summary>
@@ -710,6 +995,77 @@ namespace VN.EditorTools
                 case 3: return "flash";
                 default: return "none";
             }
+        }
+
+        private string _playerDefaultVoice = "";
+
+        private void SyncPlayerDefaults()
+        {
+            var player = Object.FindFirstObjectByType<VNPlayer>();
+            _playerDefaultVoice = player != null ? (player.defaultVoice ?? "") : "";
+        }
+
+        private void ApplyDefaultVoice(string value)
+        {
+            var player = Object.FindFirstObjectByType<VNPlayer>();
+            if (player == null)
+            {
+                EditorUtility.DisplayDialog("找不到 VNPlayer",
+                    "当前场景里没有 VNPlayer，无法设置默认说话音。先打开 VN 场景或用「VN → 构建场景」。", "好");
+                return;
+            }
+
+            UnityEditor.Undo.RecordObject(player, "Set Default Voice");
+            player.defaultVoice = value ?? "";
+            EditorUtility.SetDirty(player);
+            _playerDefaultVoice = player.defaultVoice;
+        }
+
+        private void DrawFontPopup(string label, string current, System.Action<string> apply)
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(label, GUILayout.Width(56));
+
+            current = current ?? "";
+            var display = string.IsNullOrWhiteSpace(current) ? "（默认字体）" : VNAssetLoader.ShortName(current);
+
+            if (GUILayout.Button(display, EditorStyles.popup))
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("（默认字体）"), string.IsNullOrEmpty(current), () =>
+                {
+                    apply("");
+                    _dirty = true;
+                    Repaint();
+                });
+
+                foreach (var opt in _fontOptions)
+                {
+                    var captured = opt;
+                    menu.AddItem(new GUIContent(VNAssetLoader.ShortName(captured)), current == captured, () =>
+                    {
+                        apply(captured);
+                        _dirty = true;
+                        Repaint();
+                    });
+                }
+
+                menu.ShowAsContext();
+            }
+
+            var obj = AssetDatabase.LoadAssetAtPath<Font>(current);
+            var picked = EditorGUILayout.ObjectField(obj, typeof(Font), false, GUILayout.Width(120));
+            if (picked != null)
+            {
+                var newPath = AssetDatabase.GetAssetPath(picked);
+                if (!string.IsNullOrEmpty(newPath) && newPath != current)
+                {
+                    apply(newPath);
+                    _dirty = true;
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawAssetPopup(string label, string current, List<string> options, System.Action<string> apply)

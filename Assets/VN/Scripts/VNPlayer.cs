@@ -246,6 +246,13 @@ namespace VN
             // 正在等玩家选择时，点击对话不该推进
             if (_pendingChoices) return;
 
+            // 演出顺序表还没播完：点一下直接跳过剩余演出
+            if (_stepsRunning)
+            {
+                SkipSteps();
+                return;
+            }
+
             if (Input.GetKeyDown(KeyCode.A)) ToggleAutoPlay();
 
             if (Input.GetKeyDown(KeyCode.R))
@@ -367,7 +374,7 @@ namespace VN
                 log.Add(new VNLogEntry
                 {
                     name = line.name ?? "",
-                    text = line.text,
+                    text = StripPauseMarkers(line.text),
                     nodeTitle = _currentNodeTitle ?? "",
                 });
                 if (log.Count > MaxLogEntries) log.RemoveAt(0);
@@ -381,53 +388,437 @@ namespace VN
             SetIndicatorVisible(false);
             _fullText = line.text ?? "";
             _textComplete = false;
+            _textStarted = false;
 
             if (_typeRoutine != null) StopCoroutine(_typeRoutine);
+            if (_stepRoutine != null) StopCoroutine(_stepRoutine);
+            _stepsRunning = false;
             _autoTimer = line.autoDelay;
 
-            if (string.IsNullOrEmpty(_fullText) || line.style.instant || line.style.charsPerSecond <= 0f)
+            if (audioManager != null) audioManager.StopVoice();
+            ResolveVoice(line);
+
+            if (line.steps != null && line.steps.Count > 0)
             {
-                bodyText.text = _fullText;
-                OnTypingFinished(line);
+                // 演出顺序表模式：舞台和文字都由序列驱动
+                bodyText.text = "";
+                _typing = false;
+                _stepsLine = line;
+                _stepRoutine = StartCoroutine(RunSteps(line));
             }
             else
             {
-                bodyText.text = "";
-                _typing = true;
-                _typeRoutine = StartCoroutine(TypeText(line));
+                StartTypewriter(line);
             }
         }
 
-        private IEnumerator TypeText(VNLine line)
+        /// <summary>开始打字（含 stageTiming = wait 的延迟）。</summary>
+        private void StartTypewriter(VNLine line)
+        {
+            _textStarted = true;
+
+            if (_typeRoutine != null) StopCoroutine(_typeRoutine);
+
+            if (string.IsNullOrEmpty(_fullText) || line.style.instant || line.style.charsPerSecond <= 0f)
+            {
+                bodyText.text = StripPauseMarkers(_fullText);
+                OnTypingFinished(line);
+                return;
+            }
+
+            bodyText.text = "";
+            _typing = true;
+
+            bool useStageWait = (line.stageTiming ?? "").Trim().ToLowerInvariant() == "wait"
+                                && (line.steps == null || line.steps.Count == 0);
+
+            float stageDelay = useStageWait ? EstimateStageDuration(line) : 0f;
+            _typeRoutine = StartCoroutine(TypeText(line, stageDelay));
+        }
+
+        // ---------------- 演出顺序表 ----------------
+
+        private bool _stepsRunning;
+        private VNLine _stepsLine;
+        private Coroutine _stepRoutine;
+        private bool _textStarted;
+
+        // 说话音（Undertale 风格）
+        private string _voicePath = "";
+        private string _voiceMode = "char";
+        private float _voiceVolume = 0.75f;
+        private float _voicePitchRandom = 0.06f;
+        private int _voiceEveryN = 1;
+        private int _voiceCharCounter;
+
+        [Tooltip("全局默认说话音：角色没单独配语音时用这个（可选）")]
+        public string defaultVoice = "";
+
+        private void ResolveVoice(VNLine line)
+        {
+            _voicePath = "";
+            _voiceMode = "char";
+            _voiceVolume = 0.75f;
+            _voicePitchRandom = 0.06f;
+            _voiceEveryN = 1;
+            _voiceCharCounter = 0;
+
+            // 1) 行级覆盖
+            if (!string.IsNullOrWhiteSpace(line.voice))
+            {
+                _voicePath = line.voice.Trim();
+                if (!string.IsNullOrWhiteSpace(line.voiceMode) && line.voiceMode != "keep")
+                    _voiceMode = line.voiceMode.Trim().ToLowerInvariant();
+                if (line.voiceVolume > 0f) _voiceVolume = line.voiceVolume;
+                if (line.voiceEveryNChars > 0) _voiceEveryN = line.voiceEveryNChars;
+                return;
+            }
+
+            // 2) 说话角色（先按槽位，再按名字匹配角色 id）
+            var actor = ResolveSpeakerActor(line);
+
+            if (actor != null && !string.IsNullOrWhiteSpace(actor.voice))
+            {
+                ApplyActorVoice(actor, line);
+                return;
+            }
+
+            // 3) 全局默认（不跨角色乱抓，避免串音）
+            if (!string.IsNullOrWhiteSpace(defaultVoice))
+            {
+                _voicePath = defaultVoice.Trim();
+                if (line.voiceVolume > 0f) _voiceVolume = line.voiceVolume;
+            }
+        }
+
+        private void ApplyActorVoice(VNActor actor, VNLine line)
+        {
+            _voicePath = actor.voice.Trim();
+            _voiceMode = string.IsNullOrWhiteSpace(actor.voiceMode)
+                ? "char"
+                : actor.voiceMode.Trim().ToLowerInvariant();
+            _voiceVolume = actor.voiceVolume;
+            _voicePitchRandom = actor.voicePitchRandom;
+            _voiceEveryN = Mathf.Max(1, actor.voiceEveryNChars);
+
+            if (line.voiceVolume > 0f) _voiceVolume = line.voiceVolume;
+            if (line.voiceEveryNChars > 0) _voiceEveryN = line.voiceEveryNChars;
+        }
+
+        /// <summary>
+        /// 找出这一行到底是哪个角色在说话。
+        /// 旁白（没有名字也没有指定槽位）视为无人说话，不返回角色——否则会错误沿用画面上的角色语音。
+        /// </summary>
+        private VNActor ResolveSpeakerActor(VNLine line)
+        {
+            bool hasSlot = !string.IsNullOrWhiteSpace(line.speakerSlot);
+            bool hasName = !string.IsNullOrWhiteSpace(line.name);
+
+            if (!hasSlot && !hasName) return null; // 旁白
+
+            var slot = ParseSlot(line.speakerSlot);
+            if (hasSlot && _curActors.TryGetValue(slot, out var bySlot) && bySlot != null)
+                return bySlot;
+
+            if (hasName)
+            {
+                var name = line.name.Trim();
+                foreach (var kv in _curActors)
+                {
+                    var a = kv.Value;
+                    if (a == null || string.IsNullOrWhiteSpace(a.character)) continue;
+                    if (name.Contains(a.character.Trim())) return a;
+                }
+            }
+
+            // 名字对不上角色 id 时，如果场上只有一个角色配了语音，就认为是他（单角色场景很常见）
+            VNActor sole = null;
+            int voiced = 0;
+            foreach (var kv in _curActors)
+            {
+                var a = kv.Value;
+                if (a == null || string.IsNullOrWhiteSpace(a.voice)) continue;
+                sole = a;
+                voiced++;
+            }
+
+            return voiced == 1 ? sole : null;
+        }
+
+        private IEnumerator RunSteps(VNLine line)
+        {
+            _stepsRunning = true;
+
+            var ordered = new List<VNStageStep>();
+            foreach (var s in line.steps)
+                if (s != null) ordered.Add(s);
+            ordered.Sort((a, b) => a.at.CompareTo(b.at));
+
+            float elapsed = 0f;
+
+            foreach (var step in ordered)
+            {
+                while (elapsed < step.at)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+
+                ApplyStep(line, step);
+            }
+
+            // 序列里没有「文字」步骤时兜底，避免卡住
+            if (!_textStarted) StartTypewriter(line);
+
+            _stepsRunning = false;
+            _stepRoutine = null;
+        }
+
+        private void ApplyStep(VNLine line, VNStageStep step)
+        {
+            if (step.background) ApplyBackground(line);
+            if (step.actors) ApplyActors(line);
+            if (step.camera) ApplyCamera(line);
+            if (step.transition) PlayTransition(line);
+            if (step.bgm) ApplyBgm(line);
+            if (step.sfx) ApplySfx(line);
+            if (step.text) StartTypewriter(line);
+        }
+
+        /// <summary>点击时跳过剩余演出，立刻把这一行的舞台和文字都补上。</summary>
+        public void SkipSteps()
+        {
+            if (!_stepsRunning || _stepsLine == null) return;
+
+            if (_stepRoutine != null)
+            {
+                StopCoroutine(_stepRoutine);
+                _stepRoutine = null;
+            }
+            _stepsRunning = false;
+
+            var line = _stepsLine;
+            ApplyBackground(line);
+            ApplyActors(line);
+            ApplyBgm(line);
+            ApplySfx(line);
+            ApplyCamera(line);
+            PlayTransition(line);
+
+            if (!_textStarted) StartTypewriter(line);
+        }
+
+        private struct TypeChar
+        {
+            public char c;
+            public float pauseAfter;
+        }
+
+        /// <summary>
+        /// 把台词解析成「字符 + 停顿」序列。支持 [p] / [p:0.8] 标记：
+        /// 停 0.5 秒 / 停 0.8 秒，紧跟在当前字符之后。
+        /// </summary>
+        private static List<TypeChar> ParseTypeChars(string raw)
+        {
+            var list = new List<TypeChar>();
+            if (string.IsNullOrEmpty(raw)) return list;
+
+            for (int i = 0; i < raw.Length; i++)
+            {
+                if (raw[i] == '[')
+                {
+                    int close = raw.IndexOf(']', i);
+                    if (close > i)
+                    {
+                        var inner = raw.Substring(i + 1, close - i - 1).Trim();
+                        if (inner == "p" || inner.StartsWith("p:"))
+                        {
+                            float pause = 0.5f;
+                            if (inner.Length > 2)
+                            {
+                                float.TryParse(inner.Substring(2),
+                                    System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out pause);
+                            }
+                            pause = Mathf.Clamp(pause, 0f, 10f);
+
+                            if (list.Count > 0)
+                            {
+                                var last = list[list.Count - 1];
+                                last.pauseAfter += pause;
+                                list[list.Count - 1] = last;
+                            }
+                            else
+                            {
+                                // 标记在最前面：先等着再开始
+                                list.Add(new TypeChar { c = '\0', pauseAfter = pause });
+                            }
+
+                            i = close;
+                            continue;
+                        }
+                    }
+                }
+
+                list.Add(new TypeChar { c = raw[i] });
+            }
+
+            return list;
+        }
+
+        /// <summary>去掉 [p:...] 标记，用于瞬间显示、历史记录。</summary>
+        public static string StripPauseMarkers(string raw)
+        {
+            if (string.IsNullOrEmpty(raw) || raw.IndexOf('[') < 0) return raw;
+
+            var chars = ParseTypeChars(raw);
+            var sb = new System.Text.StringBuilder(chars.Count);
+            foreach (var c in chars)
+            {
+                if (c.c != '\0') sb.Append(c.c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>估算这行舞台动画要播多久，用于 stageTiming = wait。</summary>
+        private float EstimateStageDuration(VNLine line)
+        {
+            float d = 0f;
+
+            if (!string.IsNullOrWhiteSpace(line.transition) &&
+                line.transition.Trim().ToLowerInvariant() != "none")
+            {
+                d = Mathf.Max(d, line.transitionDuration);
+            }
+
+            if (line.useCamera && line.camera != null)
+            {
+                d = Mathf.Max(d, line.camera.duration);
+                if (!string.IsNullOrWhiteSpace(line.camera.shake) &&
+                    line.camera.shake.Trim().ToLowerInvariant() != "none")
+                {
+                    d = Mathf.Max(d, line.camera.shakeDuration);
+                }
+            }
+
+            if (line.actors != null)
+            {
+                foreach (var a in line.actors)
+                {
+                    if (a == null || a.hide) continue;
+                    d = Mathf.Max(d, a.fadeDuration);
+                }
+            }
+
+            return d;
+        }
+
+        private IEnumerator TypeText(VNLine line, float initialDelay = 0f)
         {
             float cps = line.style.charsPerSecond > 0f ? line.style.charsPerSecond : defaultCharsPerSecond;
             if (cps <= 0f) cps = 30f;
             cps *= Mathf.Clamp(textSpeedMultiplier, 0.1f, 5f);
 
-            float shown = 0f;
-            int len = _fullText.Length;
-            int lastCount = -1;
+            // stageTiming = wait：先让立绘 / 镜头 / 转场播完再开口
+            if (initialDelay > 0f)
+            {
+                float wait = 0f;
+                while (wait < initialDelay)
+                {
+                    wait += Time.unscaledDeltaTime;
+                    if (ctrlToSpeedUp && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)))
+                        break;
+                    yield return null;
+                }
+            }
 
-            while (shown < len)
+            var chars = ParseTypeChars(_fullText);
+            var sb = new System.Text.StringBuilder(chars.Count);
+            int index = 0;
+            float acc = 0f;
+            bool dirty = false;
+
+            bool loopVoice = _voiceMode == "loop" && !string.IsNullOrEmpty(_voicePath);
+            if (loopVoice && audioManager != null)
+                audioManager.StartVoiceLoop(_voicePath, _voiceVolume);
+
+            // 开头的停顿标记
+            if (chars.Count > 0 && chars[0].c == '\0')
+            {
+                yield return WaitPause(chars[0].pauseAfter);
+                index = 1;
+            }
+
+            while (index < chars.Count)
             {
                 float speedMul = 1f;
                 if (ctrlToSpeedUp && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)))
                     speedMul = 8f;
 
-                shown += cps * speedMul * Time.deltaTime;
-                int count = Mathf.Clamp(Mathf.FloorToInt(shown), 0, len);
-                if (count != lastCount)
+                acc += cps * speedMul * Time.deltaTime;
+
+                while (acc >= 1f && index < chars.Count)
                 {
-                    bodyText.text = _fullText.Substring(0, count);
-                    lastCount = count;
+                    acc -= 1f;
+
+                    var tc = chars[index];
+                    sb.Append(tc.c);
+                    index++;
+                    dirty = true;
+
+                    // 逐字语音
+                    if (!loopVoice && !string.IsNullOrEmpty(_voicePath) && tc.c != '\0' && audioManager != null)
+                    {
+                        _voiceCharCounter++;
+                        if (_voiceCharCounter >= _voiceEveryN)
+                        {
+                            _voiceCharCounter = 0;
+                            audioManager.PlayVoiceOnce(_voicePath, _voiceVolume, _voicePitchRandom);
+                        }
+                    }
+
+                    if (tc.pauseAfter > 0f)
+                    {
+                        if (dirty) { bodyText.text = sb.ToString(); dirty = false; }
+                        acc = 0f;
+                        yield return WaitPause(tc.pauseAfter);
+                    }
                 }
+
+                if (dirty)
+                {
+                    bodyText.text = sb.ToString();
+                    dirty = false;
+                }
+
                 yield return null;
             }
 
-            bodyText.text = _fullText;
+            bodyText.text = StripPauseMarkers(_fullText);
+            if (audioManager != null) audioManager.StopVoice();
             _typing = false;
             _typeRoutine = null;
             OnTypingFinished(line);
+        }
+
+        private IEnumerator WaitPause(float seconds)
+        {
+            if (seconds <= 0f) yield break;
+
+            bool loopVoice = _voiceMode == "loop" && !string.IsNullOrEmpty(_voicePath);
+            if (loopVoice && audioManager != null) audioManager.PauseVoice();
+
+            float t = 0f;
+            while (t < seconds)
+            {
+                if (ctrlToSpeedUp && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)))
+                    break;
+
+                t += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            if (loopVoice && audioManager != null) audioManager.ResumeVoice();
         }
 
         private void CompleteTypingImmediately()
@@ -438,7 +829,8 @@ namespace VN
                 _typeRoutine = null;
             }
             _typing = false;
-            bodyText.text = _fullText;
+            if (audioManager != null) audioManager.StopVoice();
+            bodyText.text = StripPauseMarkers(_fullText);
             OnTypingFinished(_script.lines[_index]);
         }
 
@@ -590,7 +982,9 @@ namespace VN
 
             if (bodyText != null)
             {
-                if (dialogueFont != null) bodyText.font = dialogueFont;
+                var font = ResolveFont(line);
+                if (font != null) bodyText.font = font;
+
                 bodyText.fontSize = Mathf.Max(8, style.fontSize);
                 bodyText.color = VNColors.Parse(style.color, Color.white);
                 bodyText.supportRichText = true;
@@ -601,6 +995,38 @@ namespace VN
 
             if (bodyEffect != null)
                 bodyEffect.SetMode(style.effect, style.effectStrength, style.effectSpeed);
+        }
+
+        /// <summary>字体优先级：行级 → 说话角色 → 播放器默认。</summary>
+        private Font ResolveFont(VNLine line)
+        {
+            if (line.style != null && !string.IsNullOrWhiteSpace(line.style.font))
+            {
+                var f = VNAssetLoader.LoadFont(line.style.font);
+                if (f != null) return f;
+            }
+
+            VNActor actor = null;
+            var slot = ParseSlot(line.speakerSlot);
+            if (_curActors.TryGetValue(slot, out var speaker) && speaker != null && !string.IsNullOrWhiteSpace(speaker.font))
+            {
+                actor = speaker;
+            }
+            else
+            {
+                foreach (var kv in _curActors)
+                {
+                    if (kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.font)) { actor = kv.Value; break; }
+                }
+            }
+
+            if (actor != null && !string.IsNullOrWhiteSpace(actor.font))
+            {
+                var f = VNAssetLoader.LoadFont(actor.font);
+                if (f != null) return f;
+            }
+
+            return dialogueFont;
         }
 
         private void ApplyBackground(VNLine line)
@@ -684,14 +1110,44 @@ namespace VN
 
         private void ApplyAudio(VNLine line)
         {
+            ApplyBgm(line);
+            ApplySfx(line);
+        }
+
+        private void ApplyBgm(VNLine line)
+        {
             if (audioManager == null) return;
+
+            var action = (line.bgmAction ?? "").Trim().ToLowerInvariant();
+            float fade = Mathf.Max(0.01f, line.bgmFade);
+
             if (!string.IsNullOrWhiteSpace(line.bgm))
             {
-                audioManager.PlayBgm(line.bgm, line.bgmVolume, 0.6f);
+                // 填了音乐就播放（淡入用 bgmFade）
+                audioManager.PlayBgm(line.bgm, line.bgmVolume, fade);
                 _curBgmVolume = line.bgmVolume;
             }
-            if (!string.IsNullOrWhiteSpace(line.sfx))
-                audioManager.PlaySfx(line.sfx, line.sfxVolume);
+            else if (action == "stop")
+            {
+                // 停止：可淡出、可边淡出边变调
+                audioManager.StopBgm(fade, line.bgmPitch, line.bgmPitchDuration);
+                _curBgmVolume = 0f;
+            }
+            else if (action == "pitch")
+            {
+                // 只改音调，不停
+                audioManager.TweenPitch(line.bgmPitch, line.bgmPitchDuration);
+            }
+            else if (action == "restart")
+            {
+                audioManager.RestartBgm(fade);
+            }
+        }
+
+        private void ApplySfx(VNLine line)
+        {
+            if (audioManager == null || string.IsNullOrWhiteSpace(line.sfx)) return;
+            audioManager.PlaySfx(line.sfx, line.sfxVolume);
         }
 
         private void ApplyActors(VNLine line)
@@ -1210,7 +1666,7 @@ namespace VN
             _index = index;
             ApplyTextStyle(line);
             ApplySpeaker(line);
-            if (bodyText != null) bodyText.text = line.text ?? "";
+            if (bodyText != null) bodyText.text = StripPauseMarkers(line.text ?? "");
             SetIndicatorVisible(true);
             _typing = false;
             _textComplete = true;

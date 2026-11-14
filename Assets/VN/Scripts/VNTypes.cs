@@ -38,6 +38,41 @@ namespace VN
         public string lockedText = "";
     }
 
+    /// <summary>
+    /// 演出顺序表里的一步：在指定时间点触发一组动作（可同时多个）。
+    /// 有空列表时走默认流程（所有动作立刻执行）。
+    /// </summary>
+    [Serializable]
+    public class VNStageStep
+    {
+        [Tooltip("相对本行开始的秒数")]
+        public float at = 0f;
+
+        [Tooltip("备注，方便自己看，如「镜头晃 + 立绘入场」")]
+        public string label = "";
+
+        [Tooltip("应用本行的背景")]
+        public bool background = false;
+
+        [Tooltip("应用本行的立绘")]
+        public bool actors = false;
+
+        [Tooltip("应用本行的镜头（平移/缩放/晃动）")]
+        public bool camera = false;
+
+        [Tooltip("播放本行的转场")]
+        public bool transition = false;
+
+        [Tooltip("开始打字")]
+        public bool text = false;
+
+        [Tooltip("播放本行的音效")]
+        public bool sfx = false;
+
+        [Tooltip("应用本行的 BGM 指令")]
+        public bool bgm = false;
+    }
+
     /// <summary>一条剧本指令：一行台词 + 可选的舞台变化。</summary>
     [Serializable]
     public class VNLine
@@ -54,11 +89,23 @@ namespace VN
         [Tooltip("背景切换的淡入时长（秒）")]
         public float backgroundFade = 0.45f;
 
-        [Tooltip("背景音乐；留空 = 保持不变。同级名字会做淡入淡出切换")]
+        [Tooltip("背景音乐路径；留空则看下面的 BGM 指令")]
         public string bgm = "";
 
         [Range(0f, 1f)]
         public float bgmVolume = 0.7f;
+
+        [Tooltip("BGM 指令：keep（保持）/ stop（停止）/ pitch（只变调）/ restart（重播）。填了 bgm 路径时优先播放")]
+        public string bgmAction = "keep";
+
+        [Tooltip("BGM 淡入淡出时长（秒）")]
+        public float bgmFade = 0.8f;
+
+        [Tooltip("目标音调倍率（1 = 原调，0.5 = 低八度，1.5 = 高）")]
+        public float bgmPitch = 1f;
+
+        [Tooltip("音调过渡时长（秒）；0 = 立即，>0 = 持续变调")]
+        public float bgmPitchDuration = 0f;
 
         [Tooltip("一次性音效；留空 = 不播放")]
         public string sfx = "";
@@ -99,6 +146,24 @@ namespace VN
 
         [Tooltip("转场持续时间（秒），建议 0.2 ~ 0.8")]
         public float transitionDuration = 0.35f;
+
+        [Tooltip("舞台与文字的顺序：parallel（同时进行，默认）/ wait（等立绘入场、镜头、转场播完再开始打字）")]
+        public string stageTiming = "parallel";
+
+        [Tooltip("演出顺序表：填了就按这里的时间执行，忽略上面的默认顺序")]
+        public List<VNStageStep> steps = new List<VNStageStep>();
+
+        [Tooltip("本行的说话音覆盖（留空则用说话角色的语音）")]
+        public string voice = "";
+
+        [Tooltip("说话音模式覆盖：keep / char / loop")]
+        public string voiceMode = "keep";
+
+        [Range(0f, 1f)]
+        public float voiceVolume = 0.75f;
+
+        [Tooltip("每隔几个字触发一次（char 模式，0 = 用角色的设置）")]
+        public int voiceEveryNChars = 0;
 
         [Tooltip("播放完这行后自动跳到某个节点（留空 = 顺序往下）")]
         public string gotoNode = "";
@@ -148,6 +213,24 @@ namespace VN
 
         [Tooltip("表情名；有 character 时生效，留空则用 sprite 字段的整张图")]
         public string expression = "";
+
+        [Tooltip("这个角色的说话音（短音频，合成器 / 乐器音色）")]
+        public string voice = "";
+
+        [Tooltip("说话音模式：char（每个字触发一次，类似 Undertale）/ loop（打字期间循环播放）")]
+        public string voiceMode = "char";
+
+        [Range(0f, 1f)]
+        public float voiceVolume = 0.75f;
+
+        [Tooltip("每次触发的音调随机幅度（0 = 完全不变）")]
+        public float voicePitchRandom = 0.06f;
+
+        [Tooltip("每隔几个字触发一次（char 模式用，1 = 每字）")]
+        public int voiceEveryNChars = 1;
+
+        [Tooltip("这个角色说话时使用的字体（Assets/...ttf），留空则用默认字体")]
+        public string font = "";
     }
 
     /// <summary>镜头指令：整体平移 / 缩放 / 晃动，只影响背景与立绘，不影响对话框和按钮。</summary>
@@ -197,6 +280,9 @@ namespace VN
 
         [Tooltip("文字颜色，十六进制")]
         public string color = "#FFFFFF";
+
+        [Tooltip("本行字体路径（Assets/...ttf）；留空 = 用说话角色的字体，再留空用默认字体")]
+        public string font = "";
 
         [Tooltip("是否显示描边（帮助像素字在浅色背景上可读）")]
         public bool outline = true;

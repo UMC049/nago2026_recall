@@ -62,7 +62,13 @@
                     "scale": 1.0,
                     "tint": "#FFFFFF",
                     "fadeDuration": 0.4,
-                    "moveDuration": 0.4
+                    "moveDuration": 0.4,
+                    "voice": "Assets/VN/Resources/VN/Audio/Voice/voice_she.wav",
+                    "voiceMode": "char",
+                    "voiceVolume": 0.7,
+                    "voicePitchRandom": 0.06,
+                    "voiceEveryNChars": 1,
+                    "font": "Assets/VN/Fonts/demo-alt-font.ttf"
                 }
             ],
             "useCamera": false,
@@ -117,7 +123,13 @@
                     "scale": 1.0,
                     "tint": "#FFFFFF",
                     "fadeDuration": 0.4,
-                    "moveDuration": 0.4
+                    "moveDuration": 0.4,
+                    "voice": "Assets/VN/Resources/VN/Audio/Voice/voice_she.wav",
+                    "voiceMode": "char",
+                    "voiceVolume": 0.7,
+                    "voicePitchRandom": 0.06,
+                    "voiceEveryNChars": 1,
+                    "font": "Assets/VN/Fonts/demo-alt-font.ttf"
                 }
             ],
             "useCamera": false,
@@ -216,7 +228,45 @@
             "gotoLine": -1,
             "note": "",
             "transition": "fadeBlack",
-            "transitionDuration": 0.5
+            "transitionDuration": 0.5,
+            "steps": [
+                {
+                    "at": 0.0,
+                    "label": "黑场+音乐",
+                    "background": false,
+                    "actors": false,
+                    "camera": false,
+                    "transition": true,
+                    "text": false,
+                    "sfx": false,
+                    "bgm": true
+                },
+                {
+                    "at": 0.35,
+                    "label": "换景推镜",
+                    "background": true,
+                    "actors": true,
+                    "camera": true,
+                    "transition": false,
+                    "text": false,
+                    "sfx": true,
+                    "bgm": false
+                },
+                {
+                    "at": 1.2,
+                    "label": "开始说话",
+                    "background": false,
+                    "actors": false,
+                    "camera": false,
+                    "transition": false,
+                    "text": true,
+                    "sfx": false,
+                    "bgm": false
+                }
+            ],
+            "voice": "Assets/VN/Resources/VN/Audio/Voice/voice_loop_she.wav",
+            "voiceMode": "loop",
+            "voiceVolume": 0.55
         },
         {
             "name": "少女",
@@ -298,7 +348,13 @@
                     "scale": 1.0,
                     "tint": "#FFFFFF",
                     "fadeDuration": 0.4,
-                    "moveDuration": 0.4
+                    "moveDuration": 0.4,
+                    "voice": "Assets/VN/Resources/VN/Audio/Voice/voice_she.wav",
+                    "voiceMode": "char",
+                    "voiceVolume": 0.7,
+                    "voicePitchRandom": 0.06,
+                    "voiceEveryNChars": 1,
+                    "font": "Assets/VN/Fonts/demo-alt-font.ttf"
                 }
             ],
             "useCamera": false,
@@ -458,7 +514,11 @@
             "choices": [],
             "gotoNode": "",
             "gotoLine": -1,
-            "note": "所有支线最后都会到这里"
+            "note": "所有支线最后都会到这里",
+            "bgmAction": "stop",
+            "bgmFade": 2.5,
+            "bgmPitch": 0.8,
+            "bgmPitchDuration": 2.0
         },
         {
             "name": "",

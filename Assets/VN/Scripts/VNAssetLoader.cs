@@ -40,8 +40,18 @@ namespace VN
             return Resources.Load<AudioClip>(ToResourcesPath(path));
         }
 
-        public static TextAsset LoadText(string path)
+        public static Font LoadFont(string path)
         {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
+#if UNITY_EDITOR
+            var font = AssetDatabase.LoadAssetAtPath<Font>(path);
+            if (font != null) return font;
+#endif
+            return Resources.Load<Font>(ToResourcesPath(path));
+        }
+
+        public static TextAsset LoadText(string path)        {
             if (string.IsNullOrWhiteSpace(path)) return null;
 
 #if UNITY_EDITOR

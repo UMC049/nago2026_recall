@@ -267,6 +267,7 @@ namespace VN.EditorTools
             audioManager.bgmA = CreateAudioSource(root.transform, "BGM_A", true);
             audioManager.bgmB = CreateAudioSource(root.transform, "BGM_B", true);
             audioManager.sfx = CreateAudioSource(root.transform, "SFX", false);
+            audioManager.voice = CreateAudioSource(root.transform, "Voice", false);
 
             var player = root.AddComponent<VNPlayer>();
             player.scriptAssetPath = DefaultScript;
