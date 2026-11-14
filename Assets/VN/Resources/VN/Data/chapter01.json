@@ -1,0 +1,334 @@
+﻿{
+    "title": "第一章 · 试用",
+    "lines": [
+        {
+            "name": "",
+            "text": "雨声敲在窗上，像有人在轻轻叩门。",
+            "background": "Assets/Arts/Background/微信图片_2026-11-14_163057_193.jpg",
+            "backgroundFade": 0.6000000238418579,
+            "bgm": "Assets/Sounds/Music/VELOCIA.ogg",
+            "bgmVolume": 0.6499999761581421,
+            "sfx": "",
+            "sfxVolume": 1.0,
+            "actors": [],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 36,
+                "charsPerSecond": 26.0,
+                "effect": "none",
+                "effectStrength": 3.0,
+                "effectSpeed": 1.0,
+                "color": "#FFFFFF",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "开场：只上背景和 BGM，没有立绘"
+        },
+        {
+            "name": "少女",
+            "text": "……你终于来了。",
+            "background": "",
+            "backgroundFade": 0.44999998807907107,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "Assets/Sounds/SFX/bubbledie.wav",
+            "sfxVolume": 0.800000011920929,
+            "actors": [
+                {
+                    "slot": "center",
+                    "sprite": "Assets/Arts/Characters/she.png",
+                    "hide": false,
+                    "motion": "fade",
+                    "offsetX": 0.0,
+                    "offsetY": 40.0,
+                    "scale": 1.0,
+                    "tint": "#FFFFFF",
+                    "fadeDuration": 0.5,
+                    "moveDuration": 0.4000000059604645
+                }
+            ],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 36,
+                "charsPerSecond": 30.0,
+                "effect": "none",
+                "effectStrength": 3.0,
+                "effectSpeed": 1.0,
+                "color": "#FFFFFF",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "立绘从中间淡入"
+        },
+        {
+            "name": "少女",
+            "text": "我等了好久好久。",
+            "background": "",
+            "backgroundFade": 0.44999998807907107,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "",
+            "sfxVolume": 1.0,
+            "actors": [
+                {
+                    "slot": "center",
+                    "sprite": "Assets/Arts/Characters/she.png",
+                    "hide": false,
+                    "motion": "bounce",
+                    "offsetX": 0.0,
+                    "offsetY": 40.0,
+                    "scale": 1.1200000047683716,
+                    "tint": "#FFFFFF",
+                    "fadeDuration": 0.4000000059604645,
+                    "moveDuration": 0.4000000059604645
+                }
+            ],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 48,
+                "charsPerSecond": 22.0,
+                "effect": "wave",
+                "effectStrength": 9.0,
+                "effectSpeed": 1.2000000476837159,
+                "color": "#FFE9A8",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "字号 48 + 波浪 + 立绘弹一下"
+        },
+        {
+            "name": "少女",
+            "text": "外面很冷吧？快进来。",
+            "background": "",
+            "backgroundFade": 0.44999998807907107,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "",
+            "sfxVolume": 1.0,
+            "actors": [
+                {
+                    "slot": "center",
+                    "sprite": "Assets/Arts/Characters/she.png",
+                    "hide": false,
+                    "motion": "fade",
+                    "offsetX": 90.0,
+                    "offsetY": 40.0,
+                    "scale": 1.0199999809265137,
+                    "tint": "#FFFFFF",
+                    "fadeDuration": 0.3499999940395355,
+                    "moveDuration": 0.6000000238418579
+                }
+            ],
+            "useCamera": true,
+            "camera": {
+                "offsetX": -30.0,
+                "offsetY": 12.0,
+                "zoom": 1.0700000524520875,
+                "duration": 0.699999988079071,
+                "shake": "light",
+                "shakeDuration": 0.4000000059604645,
+                "shakeStrength": 10.0
+            },
+            "style": {
+                "fontSize": 36,
+                "charsPerSecond": 30.0,
+                "effect": "shake",
+                "effectStrength": 3.5,
+                "effectSpeed": 1.600000023841858,
+                "color": "#FFFFFF",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "同一张立绘只改位置/大小 -> 平移补间；同时轻推镜 + 抖动"
+        },
+        {
+            "name": "旅人",
+            "text": "……谢谢你。不过我马上就得走了。",
+            "background": "",
+            "backgroundFade": 0.44999998807907107,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "",
+            "sfxVolume": 1.0,
+            "actors": [
+                {
+                    "slot": "left",
+                    "sprite": "Assets/VN/Resources/VN/Char/placeholder_silhouette.png",
+                    "hide": false,
+                    "motion": "fade",
+                    "offsetX": 0.0,
+                    "offsetY": 0.0,
+                    "scale": 1.0,
+                    "tint": "#9FB8D8",
+                    "fadeDuration": 0.44999998807907107,
+                    "moveDuration": 0.4000000059604645
+                }
+            ],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 36,
+                "charsPerSecond": 30.0,
+                "effect": "pulse",
+                "effectStrength": 3.0,
+                "effectSpeed": 1.0,
+                "color": "#CFE3FF",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "左侧新增一个角色（占位剪影），演示双人同框"
+        },
+        {
+            "name": "",
+            "text": "窗外的雨忽然停了。",
+            "background": "Assets/VN/Resources/VN/BG/placeholder_night.png",
+            "backgroundFade": 0.8999999761581421,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "",
+            "sfxVolume": 1.0,
+            "actors": [],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 48,
+                "charsPerSecond": 10.0,
+                "effect": "glitch",
+                "effectStrength": 3.0,
+                "effectSpeed": 1.399999976158142,
+                "color": "#D8C6FF",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "切背景 + 极慢打字 + 故障效果"
+        },
+        {
+            "name": "少女",
+            "text": "你看，天要亮了。",
+            "background": "",
+            "backgroundFade": 0.44999998807907107,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "Assets/Sounds/SFX/bubbledie.wav",
+            "sfxVolume": 0.6000000238418579,
+            "actors": [
+                {
+                    "slot": "left",
+                    "sprite": "",
+                    "hide": true,
+                    "motion": "none",
+                    "offsetX": 0.0,
+                    "offsetY": 0.0,
+                    "scale": 1.0,
+                    "tint": "#FFFFFF",
+                    "fadeDuration": 0.30000001192092898,
+                    "moveDuration": 0.4000000059604645
+                }
+            ],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 42,
+                "charsPerSecond": 18.0,
+                "effect": "wave",
+                "effectStrength": 7.0,
+                "effectSpeed": 0.800000011920929,
+                "color": "#FFFFFF",
+                "outline": true,
+                "instant": false
+            },
+            "autoDelay": 0.0,
+            "note": "隐藏左侧角色，只留主角"
+        },
+        {
+            "name": "",
+            "text": "（第一章 · 完）",
+            "background": "",
+            "backgroundFade": 0.44999998807907107,
+            "bgm": "",
+            "bgmVolume": 0.699999988079071,
+            "sfx": "",
+            "sfxVolume": 1.0,
+            "actors": [],
+            "useCamera": false,
+            "camera": {
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "zoom": 1.0,
+                "duration": 0.6000000238418579,
+                "shake": "none",
+                "shakeDuration": 0.5,
+                "shakeStrength": 18.0
+            },
+            "style": {
+                "fontSize": 30,
+                "charsPerSecond": 0.0,
+                "effect": "none",
+                "effectStrength": 3.0,
+                "effectSpeed": 1.0,
+                "color": "#AAAAAA",
+                "outline": true,
+                "instant": true
+            },
+            "autoDelay": 0.0,
+            "note": "instant=true 时不做打字机，直接显示"
+        }
+    ]
+}
