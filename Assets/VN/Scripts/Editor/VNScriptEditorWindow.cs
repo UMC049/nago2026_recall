@@ -13,9 +13,20 @@ namespace VN.EditorTools
     /// </summary>
     public class VNScriptEditorWindow : EditorWindow
     {
-        private const string DefaultPath = "Assets/VN/Resources/VN/Data/chapter01.json";
+        private const string DataRoot = "Assets/VN/Resources/VN/Data";
+        private const string ProjectPrefKey = "VN.CurrentProject";
+        private const string DefaultProject = "demo";
         private const string SizedKey = "VNScriptEditor.Sized";
         private const string PosKey = "VNScriptEditor.Pos";
+
+        /// <summary>当前项目（= Data 下的子目录名，可为空表示直接用 Data 根目录）。</summary>
+        private string _projectId = DefaultProject;
+
+        /// <summary>当前项目的数据目录。</summary>
+        private string ProjectDir => string.IsNullOrWhiteSpace(_projectId) ? DataRoot : DataRoot + "/" + _projectId;
+
+        private string DefaultPath => ProjectDir + "/story01.json";
+        private string CharacterSetPath => ProjectDir + "/characters.json";
 
         private bool _collapsed;
         private Vector2 _expandedSize = new Vector2(1000f, 700f);
@@ -82,8 +93,89 @@ namespace VN.EditorTools
 
         private void OnEnable()
         {
+            _projectId = EditorPrefs.GetString(ProjectPrefKey, DefaultProject);
             RefreshAssetLists();
             RestorePosition();
+        }
+
+        /// <summary>Data 下所有子目录 = 可选项目。</summary>
+        private List<string> ListProjects()
+        {
+            var result = new List<string>();
+            if (!AssetDatabase.IsValidFolder(DataRoot)) return result;
+
+            foreach (var guid in AssetDatabase.FindAssets("t:Folder", new[] { DataRoot }))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.IsNullOrEmpty(path)) continue;
+
+                var parent = System.IO.Path.GetDirectoryName(path)?.Replace('\\', '/');
+                if (parent != DataRoot) continue;   // 只要一级子目录
+
+                var name = System.IO.Path.GetFileName(path);
+                if (!string.IsNullOrEmpty(name)) result.Add(name);
+            }
+
+            result.Sort(System.StringComparer.OrdinalIgnoreCase);
+            return result;
+        }
+
+        private void SwitchProject(string id)
+        {
+            id = id ?? "";
+            if (_projectId == id) return;
+
+            if (_dirty)
+            {
+                if (!EditorUtility.DisplayDialog("切换项目？", "当前剧本有未保存的改动，切换会丢失。", "切换", "取消"))
+                    return;
+            }
+
+            _projectId = id;
+            EditorPrefs.SetString(ProjectPrefKey, id);
+
+            // 清空当前编辑状态，回到空
+            _script = null;
+            _path = "";
+            _selected = -1;
+            _dirty = false;
+            _undoStack.Clear();
+            _redoStack.Clear();
+
+            RefreshAssetLists();
+            Repaint();
+        }
+
+        private void ShowNewProjectPopup()
+        {
+            VNProjectPopup.Show(name =>
+            {
+                if (string.IsNullOrWhiteSpace(name)) return;
+
+                var dir = DataRoot + "/" + name;
+                if (AssetDatabase.IsValidFolder(dir))
+                {
+                    EditorUtility.DisplayDialog("已存在", "项目「" + name + "」已经存在了。", "好");
+                    SwitchProject(name);
+                    return;
+                }
+
+                AssetDatabase.CreateFolder(DataRoot, name);
+
+                // 给个空的角色卡，方便马上用
+                var charPath = dir + "/characters.json";
+                if (!System.IO.File.Exists(charPath))
+                {
+                    System.IO.File.WriteAllText(charPath,
+                        "{\n  \"characters\": []\n}",
+                        new System.Text.UTF8Encoding(false));
+                }
+
+                AssetDatabase.Refresh();
+
+                Debug.Log("[VN] 已创建项目：" + dir);
+                SwitchProject(name);
+            });
         }
 
         private void OnDisable()
@@ -159,7 +251,7 @@ namespace VN.EditorTools
             _sfxOptions = Scan(SfxFolder, "t:AudioClip");
             _voiceOptions = Scan("Assets/VN/Resources/VN/Audio/Voice", "t:AudioClip");
             _fontOptions = Scan("Assets/VN/Fonts", "t:Font");
-            _chapterOptions = Scan("Assets/VN/Resources/VN/Data", "t:TextAsset");
+            _chapterOptions = Scan(ProjectDir, "t:TextAsset");
             _videoOptions = Scan("Assets/VN/Resources", "t:VideoClip");
         }
 
@@ -337,17 +429,50 @@ namespace VN.EditorTools
 
         private void DrawToolbar()
         {
+            // 第一行：项目
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            if (GUILayout.Button("新建", EditorStyles.toolbarButton, GUILayout.Width(52)))
+            GUILayout.Label("项目", EditorStyles.miniLabel, GUILayout.Width(30));
+
+            var projects = ListProjects();
+            var display = string.IsNullOrWhiteSpace(_projectId) ? "（根目录）" : _projectId;
+            if (GUILayout.Button(display, EditorStyles.toolbarPopup, GUILayout.Width(150)))
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("（根目录）"), string.IsNullOrWhiteSpace(_projectId), () => SwitchProject(""));
+
+                if (projects.Count == 0)
+                    menu.AddDisabledItem(new GUIContent("（还没有项目）"));
+
+                foreach (var p in projects)
+                {
+                    var captured = p;
+                    menu.AddItem(new GUIContent(p), _projectId == p, () => SwitchProject(captured));
+                }
+
+                menu.ShowAsContext();
+            }
+
+            if (GUILayout.Button("＋ 新建项目", EditorStyles.toolbarButton, GUILayout.Width(86)))
+                ShowNewProjectPopup();
+
+            if (GUILayout.Button("＋ 新建章节", EditorStyles.toolbarButton, GUILayout.Width(86)))
             {
                 if (!_dirty || EditorUtility.DisplayDialog("未保存", "当前改动还没保存，继续会丢失。", "继续", "取消"))
                     NewScript();
             }
 
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(ProjectDir, EditorStyles.miniLabel);
+
+            EditorGUILayout.EndHorizontal();
+
+            // 第二行：文件操作
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+
             if (GUILayout.Button("打开", EditorStyles.toolbarButton, GUILayout.Width(52)))
             {
-                var picked = EditorUtility.OpenFilePanel("选择剧本 JSON", "Assets/VN/Resources/VN/Data", "json");
+                var picked = EditorUtility.OpenFilePanel("选择剧本 JSON", ProjectDir, "json");
                 if (!string.IsNullOrEmpty(picked))
                 {
                     var rel = ToProjectPath(picked);
@@ -1436,7 +1561,6 @@ namespace VN.EditorTools
 
         // ---------------- 角色卡 ----------------
 
-        private const string CharacterSetPath = "Assets/VN/Resources/VN/Data/characters.json";
         private VNCharacterSet _editorCharacters;
 
         private void LoadEditorCharacters()

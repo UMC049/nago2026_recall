@@ -10,10 +10,19 @@ namespace VN.EditorTools
     /// </summary>
     public class VNCharacterEditorWindow : EditorWindow
     {
-        private const string CharacterPath = "Assets/VN/Resources/VN/Data/characters.json";
+        private const string DataRoot = "Assets/VN/Resources/VN/Data";
+        private const string ProjectPrefKey = "VN.CurrentProject";
+        private const string DefaultProject = "demo";
         private const string PortraitFolder = "Assets/VN/Resources/VN/Char";
         private const string VoiceFolder = "Assets/VN/Resources/VN/Audio";
         private const string FontFolder = "Assets/VN/Fonts";
+
+        /// <summary>当前项目（跟剧本编辑器共享）。</summary>
+        private string _projectId = DefaultProject;
+
+        private string ProjectDir => string.IsNullOrWhiteSpace(_projectId) ? DataRoot : DataRoot + "/" + _projectId;
+
+        private string CharacterPath => ProjectDir + "/characters.json";
 
         private VNCharacterSet _set;
         private int _selected;
@@ -36,11 +45,51 @@ namespace VN.EditorTools
         private void OnEnable()
         {
             titleContent = new GUIContent("VN 角色卡");
+            _projectId = EditorPrefs.GetString(ProjectPrefKey, DefaultProject);
             Load();
             RefreshAssets();
 
             // 打开窗口时先扫一遍：有没有剧本引用了已删除的角色
             SyncChapters(false);
+        }
+
+        /// <summary>Data 下的一级子目录 = 项目列表。</summary>
+        private List<string> ListProjects()
+        {
+            var result = new List<string>();
+            if (!AssetDatabase.IsValidFolder(DataRoot)) return result;
+
+            foreach (var guid in AssetDatabase.FindAssets("t:Folder", new[] { DataRoot }))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.IsNullOrEmpty(path)) continue;
+
+                var parent = System.IO.Path.GetDirectoryName(path)?.Replace('\\', '/');
+                if (parent != DataRoot) continue;
+
+                var name = System.IO.Path.GetFileName(path);
+                if (!string.IsNullOrEmpty(name)) result.Add(name);
+            }
+
+            result.Sort(System.StringComparer.OrdinalIgnoreCase);
+            return result;
+        }
+
+        private void SwitchProject(string id)
+        {
+            id = id ?? "";
+            if (_projectId == id) return;
+
+            if (_dirty && !EditorUtility.DisplayDialog("切换项目？", "角色卡有未保存的改动，切换会丢失。", "切换", "取消"))
+                return;
+
+            _projectId = id;
+            EditorPrefs.SetString(ProjectPrefKey, id);
+
+            _selected = 0;
+            Load();
+            SyncChapters(false);
+            Repaint();
         }
 
         private void Load()
@@ -97,7 +146,7 @@ namespace VN.EditorTools
         /// </summary>
         private void SyncChapters(bool applyChanges = true)
         {
-            var guids = AssetDatabase.FindAssets("t:TextAsset", new[] { "Assets/VN/Resources/VN/Data" });
+            var guids = AssetDatabase.FindAssets("t:TextAsset", new[] { ProjectDir });
 
             int updated = 0;
             int removed = 0;
@@ -257,6 +306,29 @@ namespace VN.EditorTools
         private void DrawToolbar()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+
+            GUILayout.Label("项目", EditorStyles.miniLabel, GUILayout.Width(30));
+
+            var projects = ListProjects();
+            var display = string.IsNullOrWhiteSpace(_projectId) ? "（根目录）" : _projectId;
+            if (GUILayout.Button(display, EditorStyles.toolbarPopup, GUILayout.Width(150)))
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("（根目录）"), string.IsNullOrWhiteSpace(_projectId), () => SwitchProject(""));
+
+                if (projects.Count == 0)
+                    menu.AddDisabledItem(new GUIContent("（还没有项目）"));
+
+                foreach (var p in projects)
+                {
+                    var captured = p;
+                    menu.AddItem(new GUIContent(p), _projectId == p, () => SwitchProject(captured));
+                }
+
+                menu.ShowAsContext();
+            }
+
+            GUILayout.Space(8);
 
             if (GUILayout.Button("＋ 新建角色", EditorStyles.toolbarButton, GUILayout.Width(90)))
             {

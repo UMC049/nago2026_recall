@@ -726,8 +726,16 @@ Assets/VN/
 │   └── Editor/
 │       ├── VNSceneBuilder.cs    一键生成场景
 │       ├── VNScriptEditorWindow.cs  剧本编辑器
+│       ├── VNCharacterEditorWindow.cs 角色卡编辑器
+│       ├── VNProjectPopup.cs    新建项目弹窗
+│       ├── VNBuilder.cs         一键打包
 │       └── VNImportPostprocessor.cs 素材自动导入设置
-├── Resources/VN/Data/chapter01.json   示例剧本
+├── Resources/VN/Data/
+│   └── demo/                    一个项目 = 一个文件夹（名字随便起）
+│       ├── characters.json      角色卡
+│       ├── story01.json         章节
+│       ├── story02.json
+│       └── story03.json
 └── Fonts/fusion-pixel-12px-zh_hans.ttf  像素字体
 ```
 
@@ -739,8 +747,18 @@ Assets/VN/Resources/VN/
 ├── Char/          人物立绘（透明 PNG）
 ├── Audio/BGM/     背景音乐
 ├── Audio/SFX/     音效
-└── Data/          剧本 JSON
+└── Data/
+    ├── demo/            项目 A（章节 + 角色卡）
+    └── 另一个游戏/      项目 B（章节 + 角色卡）
 ```
+
+**多项目**：`Data/` 下的每个子目录是一个独立项目，可以有自己的章节和角色卡，名字随便起（支持中文）。
+素材（BG / Char / Audio）是所有项目共享的。
+
+`VNPlayer` 上对应三个字段：`projectId`（项目名）、`startChapterFile`（起始章节文件名）、
+`characterSetFile`（角色卡文件名）。运行时路径 = `Data/<projectId>/<文件名>`。
+
+章节跳转 `nextChapter` 只写文件名（如 `story02.json`）时会自动拼到当前项目下，写完整路径则原样使用。
 
 放在 `Resources` 下有两个好处：编辑器里能按路径加载，**打包后也能用**（`Resources.Load`）。
 `Assets/VN/Resources/` 和 `Assets/Sounds/` 下的图片/音频会被自动设成正确的导入格式

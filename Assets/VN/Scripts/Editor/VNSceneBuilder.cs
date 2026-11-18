@@ -15,7 +15,8 @@ namespace VN.EditorTools
     {
         private const string ScenePath = "Assets/VN/Scenes/VN.unity";
         private const string FontPath = "Assets/VN/Fonts/fusion-pixel-12px-zh_hans.ttf";
-        private const string DefaultScript = "Assets/VN/Resources/VN/Data/chapter01.json";
+        private const string DefaultProject = "demo";
+        private const string DefaultScript = "Assets/VN/Resources/VN/Data/demo/story01.json";
 
         // 横屏全屏设计基准（16:9，跟电脑显示器一致）
         private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
@@ -270,6 +271,9 @@ namespace VN.EditorTools
             audioManager.voice = CreateAudioSource(root.transform, "Voice", false);
 
             var player = root.AddComponent<VNPlayer>();
+            player.projectId = DefaultProject;
+            player.startChapterFile = "story01.json";
+            player.characterSetFile = "characters.json";
             player.scriptAssetPath = DefaultScript;
             player.stageRoot = stage;
             player.backgroundA = bgA;

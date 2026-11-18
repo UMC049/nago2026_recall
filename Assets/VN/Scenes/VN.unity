@@ -1873,8 +1873,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e0f01804dcfdc4a4892e8c597bae0488, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  scriptAssetPath: Assets/VN/Resources/VN/Data/story01.json
-  startChapter: Assets/VN/Resources/VN/Data/story01.json
+  scriptAssetPath: Assets/VN/Resources/VN/Data/demo/story01.json
+  startChapterFile: story01.json
+  characterSetFile: characters.json
+  projectId: demo
   playOnStart: 1
   startLineIndex: 0
   stageRoot: {fileID: 1527856917}

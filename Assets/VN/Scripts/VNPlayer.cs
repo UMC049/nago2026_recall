@@ -18,13 +18,45 @@ namespace VN
     [AddComponentMenu("VN/VN Player")]
     public class VNPlayer : MonoBehaviour
     {
+        [Header("项目")]
+        [Tooltip("项目名 = Resources/VN/Data 下的子目录名。每个项目有自己的一套章节和角色卡，名字随便起（支持中文）")]
+        public string projectId = "demo";
+
         [Header("剧本")]
-        [Tooltip("剧本 JSON 的工程路径，例如 Assets/VN/Resources/VN/Data/story01.json")]
-        public string scriptAssetPath = "Assets/VN/Resources/VN/Data/story01.json";
+        [Tooltip("当前章节的完整工程路径（运行时用，存档会记录它）")]
+        public string scriptAssetPath = "Assets/VN/Resources/VN/Data/demo/story01.json";
         public bool playOnStart = true;
 
-        [Tooltip("「新游戏」从头开始的剧本。和 scriptAssetPath 分开，避免编辑器调试时被改掉")]
-        public string startChapter = "Assets/VN/Resources/VN/Data/story01.json";
+        [Tooltip("「新游戏」从哪个文件开始（项目目录下的文件名，如 story01.json）")]
+        public string startChapterFile = "story01.json";
+
+        [Tooltip("角色卡文件名（项目目录下的，如 characters.json）")]
+        public string characterSetFile = "characters.json";
+
+        /// <summary>当前项目的数据目录。</summary>
+        public string ProjectDataDir
+        {
+            get
+            {
+                const string root = "Assets/VN/Resources/VN/Data";
+                return string.IsNullOrWhiteSpace(projectId) ? root : root + "/" + projectId.Trim();
+            }
+        }
+
+        /// <summary>把「story01.json」或完整路径解析成工程路径。</summary>
+        public string ResolveChapterPath(string pathOrName)
+        {
+            if (string.IsNullOrWhiteSpace(pathOrName)) return "";
+            var s = pathOrName.Trim();
+            if (s.Contains("/") || s.Contains("\\")) return s;
+            return ProjectDataDir + "/" + s;
+        }
+
+        /// <summary>新游戏真正加载的完整路径。</summary>
+        public string StartChapterPath => ResolveChapterPath(startChapterFile);
+
+        /// <summary>角色卡的完整路径。</summary>
+        public string CharacterSetPath => ResolveChapterPath(characterSetFile);
 
         [Tooltip("从第几行开始播放（0 开始）；编辑器里的「▶ 播放」会写这个值")]
         public int startLineIndex = 0;
@@ -384,7 +416,7 @@ namespace VN
             ResetCamera();
 
             // 永远从「起始章节」开始，不受编辑器调试时临时切过的剧本影响
-            var chapter = string.IsNullOrWhiteSpace(startChapter) ? scriptAssetPath : startChapter;
+            var chapter = StartChapterPath;
             scriptAssetPath = chapter;
 
             LoadAndPlay(chapter);
@@ -712,7 +744,7 @@ namespace VN
                     // 章节切换优先级最高
                     if (!string.IsNullOrWhiteSpace(cur.nextChapter))
                     {
-                        if (EnterChapter(cur.nextChapter, Mathf.Max(0, cur.nextChapterLine))) return;
+                        if (EnterChapter(ResolveChapterPath(cur.nextChapter), Mathf.Max(0, cur.nextChapterLine))) return;
                         Debug.LogWarning($"[VN] 章节切换失败：{cur.nextChapter}");
                     }
 
@@ -740,15 +772,16 @@ namespace VN
             ShowLine(_script.lines[_index]);
         }
 
-        /// <summary>按 Data 目录的文件名顺序，自动进入当前章节的下一章。</summary>
+        /// <summary>按项目目录下的文件名顺序，自动进入当前章节的下一章。</summary>
         private bool TryAutoNextChapter()
         {
-            var assets = Resources.LoadAll<TextAsset>("VN/Data");
+            var sub = "VN/Data" + (string.IsNullOrWhiteSpace(projectId) ? "" : "/" + projectId.Trim());
+            var assets = Resources.LoadAll<TextAsset>(sub);
             if (assets == null || assets.Length == 0) return false;
 
             var paths = new List<string>();
             foreach (var ta in assets)
-                paths.Add("Assets/VN/Resources/VN/Data/" + ta.name + ".json");
+                paths.Add(ProjectDataDir + "/" + ta.name + ".json");
 
             paths.Sort(System.StringComparer.OrdinalIgnoreCase);
 
@@ -912,10 +945,6 @@ namespace VN
         [Tooltip("全局默认说话音：角色没单独配语音时用这个（可选）")]
         public string defaultVoice = "";
 
-        [Header("角色卡")]
-        [Tooltip("角色卡 JSON（立绘 / 说话音 / 字体一次配好）；留空则不使用")]
-        public string characterSetPath = "Assets/VN/Resources/VN/Data/characters.json";
-
         private VNCharacterSet _characters;
         private bool _charactersLoaded;
 
@@ -924,12 +953,13 @@ namespace VN
             if (_charactersLoaded) return;
             _charactersLoaded = true;
 
-            if (string.IsNullOrWhiteSpace(characterSetPath)) return;
+            var path = CharacterSetPath;
+            if (string.IsNullOrWhiteSpace(path)) return;
 
-            var text = VNAssetLoader.LoadText(characterSetPath);
+            var text = VNAssetLoader.LoadText(path);
             if (text == null)
             {
-                Debug.LogWarning($"[VN] 找不到角色卡：{characterSetPath}");
+                Debug.LogWarning($"[VN] 找不到角色卡：{path}");
                 return;
             }
 
@@ -1460,7 +1490,7 @@ namespace VN
             // 章节跳转优先
             if (!string.IsNullOrWhiteSpace(choice.targetChapter))
             {
-                if (EnterChapter(choice.targetChapter, Mathf.Max(0, choice.targetChapterLine))) return;
+                if (EnterChapter(ResolveChapterPath(choice.targetChapter), Mathf.Max(0, choice.targetChapterLine))) return;
                 Debug.LogWarning($"[VN] 章节切换失败：{choice.targetChapter}");
             }
 
