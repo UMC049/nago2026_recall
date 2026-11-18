@@ -29,6 +29,13 @@ namespace VN
         private readonly Texture2D[] _thumbTex = new Texture2D[SlotCount];
         private readonly Button[] _tabButtons = new Button[4];
 
+        // 自动存档（分支点自动写入，不占 6 个手动槽）
+        private Text _autoInfo;
+        private RawImage _autoThumb;
+        private Texture2D _autoThumbTex;
+        private GameObject _autoRow;
+        private Button _autoLoadButton;
+
         private Text _routeText;
         private Text _routePageLabel;
         private Text _varText;
@@ -186,13 +193,76 @@ namespace VN
             LayoutTop(hint.rectTransform, 300f, 0f, -260f, 30f, 84f);
             hint.color = new Color(0.65f, 0.7f, 0.8f);
 
+            BuildAutoSaveRow(page);
+
             for (int i = 0; i < SlotCount; i++)
                 BuildSlotRow(page, i);
         }
 
+        private void BuildAutoSaveRow(RectTransform page)
+        {
+            float top = -128f;
+
+            var row = CreateImage("AutoSlot", page, new Color(0.9f, 0.76f, 0.42f, 0.10f));
+            _autoRow = row.gameObject;
+
+            var rrt = row.rectTransform;
+            rrt.anchorMin = new Vector2(0f, 1f);
+            rrt.anchorMax = new Vector2(1f, 1f);
+            rrt.pivot = new Vector2(0.5f, 1f);
+            rrt.offsetMin = new Vector2(40f, top - 80f);
+            rrt.offsetMax = new Vector2(-40f, top);
+
+            // 缩略图
+            var thumbBg = CreateImage("ThumbBg", rrt, new Color(0.26f, 0.28f, 0.34f, 1f));
+            var brt = thumbBg.rectTransform;
+            brt.anchorMin = new Vector2(0f, 0.5f);
+            brt.anchorMax = new Vector2(0f, 0.5f);
+            brt.pivot = new Vector2(0f, 0.5f);
+            brt.sizeDelta = new Vector2(112f, 62f);
+            brt.anchoredPosition = new Vector2(18f, 0f);
+            thumbBg.raycastTarget = false;
+
+            var thumbGO = new GameObject("Thumb", typeof(RectTransform), typeof(RawImage));
+            thumbGO.transform.SetParent(rrt, false);
+            var trt = (RectTransform)thumbGO.transform;
+            trt.anchorMin = new Vector2(0f, 0.5f);
+            trt.anchorMax = new Vector2(0f, 0.5f);
+            trt.pivot = new Vector2(0f, 0.5f);
+            trt.sizeDelta = new Vector2(106f, 58f);
+            trt.anchoredPosition = new Vector2(21f, 0f);
+            _autoThumb = thumbGO.GetComponent<RawImage>();
+            _autoThumb.color = Color.white;
+            _autoThumb.raycastTarget = false;
+            thumbGO.SetActive(false);
+
+            _autoInfo = CreateText("AutoInfo", rrt, "", 24, TextAnchor.MiddleLeft);
+            var irt = _autoInfo.rectTransform;
+            irt.anchorMin = Vector2.zero;
+            irt.anchorMax = Vector2.one;
+            irt.offsetMin = new Vector2(146f, 6f);
+            irt.offsetMax = new Vector2(-420f, -6f);
+            _autoInfo.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _autoInfo.verticalOverflow = VerticalWrapMode.Truncate;
+
+            _autoLoadButton = CreateButton(rrt, "读取", new Color(0.22f, 0.35f, 0.55f), () =>
+            {
+                if (_player != null && _player.LoadAutoSave()) Close();
+            });
+            PlaceRight(_autoLoadButton, -226f, 110f);
+
+            var del = CreateButton(rrt, "清除", new Color(0.45f, 0.22f, 0.25f), () =>
+            {
+                VNSaveSystem.Delete(VNSaveSystem.AutoSlot);
+                VNSaveSystem.DeleteThumbnail(VNSaveSystem.AutoSlot);
+                RefreshSavePage();
+            });
+            PlaceRight(del, -96f, 110f);
+        }
+
         private void BuildSlotRow(RectTransform page, int index)
         {
-            float top = -170f - index * 100f;
+            float top = -222f - index * 88f;
 
             var row = CreateImage($"Slot{index}", page, new Color(1f, 1f, 1f, 0.05f));
             var rrt = row.rectTransform;
@@ -560,6 +630,8 @@ namespace VN
 
         private void RefreshSavePage()
         {
+            RefreshAutoSaveRow();
+
             for (int i = 0; i < SlotCount; i++)
             {
                 if (_slotInfo[i] == null) continue;
@@ -579,9 +651,53 @@ namespace VN
             }
         }
 
-        private void RefreshThumb(int slot, bool hasSave)
+        private void RefreshAutoSaveRow()
         {
-            var raw = _thumbs[slot];
+            if (_autoInfo == null) return;
+
+            var data = VNSaveSystem.Read(VNSaveSystem.AutoSlot);
+            bool has = data != null && !data.IsEmpty;
+
+            if (!has)
+            {
+                _autoInfo.text = "<color=#7A8296>自动存档　—　暂无（经过分支点时会自动保存）</color>";
+            }
+            else
+            {
+                var when = string.IsNullOrEmpty(data.savedAt) ? "" : data.savedAt;
+                _autoInfo.text = $"<color=#FFD98A>自动存档</color>　<size=22><color=#9AA3B8>{when}</color></size>\n{data.preview}";
+            }
+
+            if (_autoLoadButton != null) _autoLoadButton.interactable = has;
+
+            if (_autoThumb == null) return;
+
+            if (_autoThumbTex != null)
+            {
+                Destroy(_autoThumbTex);
+                _autoThumbTex = null;
+            }
+
+            if (!has)
+            {
+                _autoThumb.gameObject.SetActive(false);
+                return;
+            }
+
+            var tex = VNSaveSystem.LoadThumbnail(VNSaveSystem.AutoSlot);
+            if (tex == null)
+            {
+                _autoThumb.gameObject.SetActive(false);
+                return;
+            }
+
+            _autoThumbTex = tex;
+            _autoThumb.texture = tex;
+            _autoThumb.gameObject.SetActive(true);
+        }
+
+        private void RefreshThumb(int slot, bool hasSave)
+        {            var raw = _thumbs[slot];
             if (raw == null) return;
 
             if (_thumbTex[slot] != null)

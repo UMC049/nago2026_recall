@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace VN
@@ -26,6 +27,8 @@ namespace VN
         private Coroutine _bgmRoutine;
         private Coroutine _pitchRoutine;
         private string _voicePath = "";
+        private string _lastBgmPath = "";
+        private float _lastBgmTime = 0f;
 
         public string CurrentBgm { get; private set; } = "";
 
@@ -76,6 +79,16 @@ namespace VN
         /// <summary>播放 BGM；与当前相同则不打断。</summary>
         public void PlayBgm(string path, float volume, float fadeSeconds)
         {
+            PlayBgm(path, volume, fadeSeconds, false, 1f);
+        }
+
+        /// <summary>
+        /// 播放 BGM。
+        /// resume = true 且和上次停掉的曲目相同时，从上次的位置继续。
+        /// initialPitch 是这首曲子的起始音调（1 = 原调）。
+        /// </summary>
+        public void PlayBgm(string path, float volume, float fadeSeconds, bool resume, float initialPitch)
+        {
             _lineBgmVolume = Mathf.Clamp01(volume);
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -97,8 +110,14 @@ namespace VN
                 return;
             }
 
+            float startTime = 0f;
+            if (resume && path == _lastBgmPath && _lastBgmTime > 0f)
+            {
+                startTime = Mathf.Min(_lastBgmTime, Mathf.Max(0f, clip.length - 0.05f));
+            }
+
             CurrentBgm = path;
-            SwapTo(clip, Mathf.Max(0.01f, fadeSeconds));
+            SwapTo(clip, Mathf.Max(0.01f, fadeSeconds), startTime, Mathf.Clamp(initialPitch, 0.05f, 4f));
         }
 
         public void StopBgm(float fadeSeconds)
@@ -112,6 +131,13 @@ namespace VN
         /// </summary>
         public void StopBgm(float fadeSeconds, float targetPitch, float pitchDuration)
         {
+            // 记录进度，方便以后 resume
+            if (_active != null && _active.isPlaying && !string.IsNullOrEmpty(CurrentBgm))
+            {
+                _lastBgmPath = CurrentBgm;
+                _lastBgmTime = _active.time;
+            }
+
             CurrentBgm = "";
             if (_bgmRoutine != null) StopCoroutine(_bgmRoutine);
             _bgmRoutine = StartCoroutine(FadeOutAll(
@@ -120,9 +146,52 @@ namespace VN
                 pitchDuration > 0f ? pitchDuration : -1f));
         }
 
-        /// <summary>只改变当前 BGM 的音调（不停止）。</summary>
-        public void TweenPitch(float targetPitch, float duration)
+        /// <summary>
+        /// 把当前 BGM 渐变到指定音量（不停止），可以同时变调。
+        /// 适合「音乐渐渐变弱变低」这种氛围演出。
+        /// </summary>
+        public void FadeBgmTo(float targetVolume, float duration, float targetPitch, float pitchDuration)
         {
+            if (_active == null || !_active.isPlaying) return;
+
+            _lineBgmVolume = Mathf.Clamp01(targetVolume);
+
+            if (_bgmRoutine != null) StopCoroutine(_bgmRoutine);
+            _bgmRoutine = StartCoroutine(FadeBgmRoutine(
+                _active,
+                CurrentBgmVolume,
+                Mathf.Max(0.01f, duration),
+                Mathf.Clamp(targetPitch, 0.05f, 4f),
+                pitchDuration > 0f ? pitchDuration : -1f));
+        }
+
+        private IEnumerator FadeBgmRoutine(AudioSource src, float targetVol, float duration, float targetPitch, float pitchDuration)
+        {
+            float startVol = src.volume;
+            float startPitch = src.pitch;
+            bool doPitch = Mathf.Abs(targetPitch - 1f) > 0.001f;
+            float pd = pitchDuration > 0f ? pitchDuration : duration;
+            float total = Mathf.Max(duration, doPitch ? pd : 0f);
+
+            float t = 0f;
+            while (t < total && src != null)
+            {
+                t += Time.unscaledDeltaTime;
+                src.volume = Mathf.Lerp(startVol, targetVol, Mathf.Clamp01(t / duration));
+                if (doPitch) src.pitch = Mathf.Lerp(startPitch, targetPitch, Mathf.Clamp01(t / pd));
+                yield return null;
+            }
+
+            if (src != null)
+            {
+                src.volume = targetVol;
+                if (doPitch) src.pitch = targetPitch;
+            }
+            _bgmRoutine = null;
+        }
+
+        /// <summary>只改变当前 BGM 的音调（不停止）。</summary>
+        public void TweenPitch(float targetPitch, float duration)        {
             if (_active == null || !_active.isPlaying) return;
             targetPitch = Mathf.Clamp(targetPitch, 0.05f, 4f);
 
@@ -160,20 +229,21 @@ namespace VN
             PlayBgm(path, _lineBgmVolume, Mathf.Max(0.01f, fadeSeconds));
         }
 
-        private void SwapTo(AudioClip clip, float fade)
+        private void SwapTo(AudioClip clip, float fade, float startTime, float pitch)
         {
             if (_bgmRoutine != null) StopCoroutine(_bgmRoutine);
-            _bgmRoutine = StartCoroutine(CrossFade(clip, fade));
+            _bgmRoutine = StartCoroutine(CrossFade(clip, fade, startTime, pitch));
         }
 
-        private IEnumerator CrossFade(AudioClip clip, float fade)
+        private IEnumerator CrossFade(AudioClip clip, float fade, float startTime, float pitch)
         {
             var from = _active;
             var to = ReferenceEquals(_active, bgmA) ? bgmB : bgmA;
             if (to == null) to = from;
 
             to.clip = clip;
-            to.pitch = 1f;
+            to.pitch = pitch;
+            to.time = Mathf.Clamp(startTime, 0f, Mathf.Max(0f, clip.length - 0.05f));
             to.volume = 0f;
             to.Play();
 
@@ -298,6 +368,132 @@ namespace VN
             voice.loop = false;
             voice.clip = null;
             _voicePath = "";
+        }
+
+        // ---------------- 多音轨 ----------------
+
+        private readonly Dictionary<string, AudioSource> _tracks = new Dictionary<string, AudioSource>();
+        private readonly Dictionary<string, Coroutine> _trackRoutines = new Dictionary<string, Coroutine>();
+        private readonly Dictionary<string, float> _trackVolume = new Dictionary<string, float>();
+
+        private AudioSource GetTrack(string track)
+        {
+            var key = string.IsNullOrWhiteSpace(track) ? "ambient" : track.Trim().ToLowerInvariant();
+
+            if (_tracks.TryGetValue(key, out var src) && src != null) return src;
+
+            var go = new GameObject("Track_" + key, typeof(AudioSource));
+            go.transform.SetParent(transform, false);
+
+            src = go.GetComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.loop = true;
+            src.volume = 0f;
+
+            _tracks[key] = src;
+            return src;
+        }
+
+        /// <summary>在指定音轨上播放（不同音轨可以同时出声）。</summary>
+        public void PlayTrack(string track, string path, float volume, float fade, bool loop, float pitch)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            var clip = VNAssetLoader.LoadClip(path);
+            if (clip == null)
+            {
+                Debug.LogWarning($"[VN] 找不到音频：{path}");
+                return;
+            }
+
+            var key = string.IsNullOrWhiteSpace(track) ? "ambient" : track.Trim().ToLowerInvariant();
+            var src = GetTrack(key);
+
+            src.clip = clip;
+            src.loop = loop;
+            src.pitch = Mathf.Clamp(pitch, 0.1f, 4f);
+            src.time = 0f;
+
+            float target = Mathf.Clamp01(volume) * Mathf.Clamp01(globalBgmVolume);
+            _trackVolume[key] = target;
+
+            if (_trackRoutines.TryGetValue(key, out var run) && run != null) StopCoroutine(run);
+            _trackRoutines[key] = StartCoroutine(FadeTrackIn(src, target, Mathf.Max(0.01f, fade)));
+
+            src.Play();
+        }
+
+        public void StopTrack(string track, float fade, float pitch = 1f, float pitchDuration = 0f)
+        {
+            var key = string.IsNullOrWhiteSpace(track) ? "ambient" : track.Trim().ToLowerInvariant();
+            if (!_tracks.TryGetValue(key, out var src) || src == null) return;
+
+            if (_trackRoutines.TryGetValue(key, out var run) && run != null) StopCoroutine(run);
+            _trackRoutines[key] = StartCoroutine(FadeTrackOut(src, Mathf.Max(0.01f, fade), pitch, pitchDuration));
+        }
+
+        public void SetTrackPitch(string track, float pitch, float duration)
+        {
+            var key = string.IsNullOrWhiteSpace(track) ? "ambient" : track.Trim().ToLowerInvariant();
+            if (!_tracks.TryGetValue(key, out var src) || src == null) return;
+
+            pitch = Mathf.Clamp(pitch, 0.1f, 4f);
+
+            if (duration <= 0f)
+            {
+                src.pitch = pitch;
+                return;
+            }
+
+            if (_trackRoutines.TryGetValue(key, out var run) && run != null) StopCoroutine(run);
+            _trackRoutines[key] = StartCoroutine(TweenPitchRoutine(src, pitch, duration));
+        }
+
+        public void SetTrackVolume(string track, float volume)
+        {
+            var key = string.IsNullOrWhiteSpace(track) ? "ambient" : track.Trim().ToLowerInvariant();
+            if (!_tracks.TryGetValue(key, out var src) || src == null) return;
+
+            float v = Mathf.Clamp01(volume) * Mathf.Clamp01(globalBgmVolume);
+            _trackVolume[key] = v;
+            src.volume = v;
+        }
+
+        private IEnumerator FadeTrackIn(AudioSource src, float target, float duration)
+        {
+            float start = src.volume;
+            float t = 0f;
+            while (t < duration && src != null)
+            {
+                t += Time.unscaledDeltaTime;
+                src.volume = Mathf.Lerp(start, target, Mathf.Clamp01(t / duration));
+                yield return null;
+            }
+            if (src != null) src.volume = target;
+        }
+
+        private IEnumerator FadeTrackOut(AudioSource src, float duration, float targetPitch, float pitchDuration)
+        {
+            float startVol = src.volume;
+            float startPitch = src.pitch;
+            bool doPitch = Mathf.Abs(targetPitch - 1f) > 0.001f;
+            float pd = pitchDuration > 0f ? pitchDuration : duration;
+            float total = Mathf.Max(duration, doPitch ? pd : 0f);
+
+            float t = 0f;
+            while (t < total && src != null)
+            {
+                t += Time.unscaledDeltaTime;
+                src.volume = Mathf.Lerp(startVol, 0f, Mathf.Clamp01(t / duration));
+                if (doPitch) src.pitch = Mathf.Lerp(startPitch, targetPitch, Mathf.Clamp01(t / pd));
+                yield return null;
+            }
+
+            if (src == null) yield break;
+            src.Stop();
+            src.volume = 0f;
+            src.pitch = 1f;
+            src.clip = null;
         }
     }
 }

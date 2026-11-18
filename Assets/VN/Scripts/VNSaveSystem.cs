@@ -39,11 +39,16 @@ namespace VN
     {
         public const int SlotCount = 6;
 
+        /// <summary>自动存档用的特殊槽位（不占 6 个手动槽）。</summary>
+        public const int AutoSlot = -1;
+
         private static string Root => Path.Combine(Application.persistentDataPath, "vn_saves");
 
         public static string PathFor(int slot)
         {
-            return Path.Combine(Root, $"slot_{slot}.json");
+            return slot < 0
+                ? Path.Combine(Root, "auto.json")
+                : Path.Combine(Root, $"slot_{slot}.json");
         }
 
         public static bool Exists(int slot)
@@ -119,7 +124,9 @@ namespace VN
 
         public static string ThumbPath(int slot)
         {
-            return Path.Combine(Root, $"slot_{slot}.png");
+            return slot < 0
+                ? Path.Combine(Root, "auto.png")
+                : Path.Combine(Root, $"slot_{slot}.png");
         }
 
         public static void SaveThumbnail(int slot)

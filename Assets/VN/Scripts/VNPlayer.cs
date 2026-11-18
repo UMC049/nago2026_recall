@@ -19,9 +19,12 @@ namespace VN
     public class VNPlayer : MonoBehaviour
     {
         [Header("剧本")]
-        [Tooltip("剧本 JSON 的工程路径，例如 Assets/VN/Resources/VN/Data/chapter01.json")]
-        public string scriptAssetPath = "Assets/VN/Resources/VN/Data/chapter01.json";
+        [Tooltip("剧本 JSON 的工程路径，例如 Assets/VN/Resources/VN/Data/story01.json")]
+        public string scriptAssetPath = "Assets/VN/Resources/VN/Data/story01.json";
         public bool playOnStart = true;
+
+        [Tooltip("「新游戏」从头开始的剧本。和 scriptAssetPath 分开，避免编辑器调试时被改掉")]
+        public string startChapter = "Assets/VN/Resources/VN/Data/story01.json";
 
         [Tooltip("从第几行开始播放（0 开始）；编辑器里的「▶ 播放」会写这个值")]
         public int startLineIndex = 0;
@@ -39,6 +42,58 @@ namespace VN
         [Tooltip("全屏遮罩；留空会在运行时自动创建（不会盖住右上角菜单按钮）")]
         public Image transitionOverlay;
 
+        [Header("章节过场")]
+        [Tooltip("章节开始 / 切换时，用一张全屏卡片显示章节名")]
+        public bool showChapterCard = true;
+
+        public float chapterCardFadeToBlack = 0.8f;
+        public float chapterCardHold = 1.6f;
+        public float chapterCardFadeOut = 0.9f;
+
+        private VNChapterCard _chapterCard;
+
+        [Header("结局")]
+        [Tooltip("结局面面结束后回到主菜单（关掉则直接退出程序）")]
+        public bool endingReturnToTitle = true;
+
+        [Header("章节")]
+
+        [Tooltip("剧本播完自动进入下一个章节（按 Data 目录文件名排序）。调试整条线时打开；正式发布建议用剧本里的 nextChapter 显式指定。")]
+        public bool autoNextChapter = false;
+
+        [Header("主菜单")]
+        [Tooltip("启动时先显示主菜单（新游戏 / 继续 / 设置 / 退出）")]
+        public bool showTitleOnStart = true;
+
+        [Tooltip("主菜单背景图；留空会自动用一张默认背景")]
+        public Sprite titleBackground;
+
+        [Tooltip("主菜单标题")]
+        public string gameTitle = "回响RECALL";
+
+        [Tooltip("主菜单副标题")]
+        public string gameSubtitle = "recall the rain";
+
+        [Tooltip("主菜单循环音乐（留空则静音）")]
+        public string titleMusic = "Assets/VN/Resources/VN/Audio/BGM/tt.ogg";
+
+        [Range(0f, 1f)]
+        [Tooltip("主菜单音乐音量")]
+        public float titleMusicVolume = 0.6f;
+
+        private VNTitleScreen _titleScreen;
+
+        [Header("视觉效果")]
+        [Tooltip("失明 / 视力模糊当前强度（运行时由剧本驱动）")]
+        [Range(0f, 1f)]
+        public float blindAmount = 0f;
+
+        private Material _blindMatA;
+        private Material _blindMatB;
+        private float _blindCurrent;
+        private float _blindTarget;
+        private float _blindFadeTime = 1f;
+
         [Header("对话 UI")]
         public GameObject dialogueRoot;
         public GameObject namePlate;
@@ -50,6 +105,19 @@ namespace VN
 
         [Header("音频")]
         public VNAudioManager audioManager;
+
+        [Header("系统音效")]
+        [Tooltip("保存成功时播放")]
+        public string saveSfx = "Assets/VN/Resources/VN/Audio/SFX/load&save.wav";
+
+        [Tooltip("读档成功时播放")]
+        public string loadSfx = "Assets/VN/Resources/VN/Audio/SFX/load&save.wav";
+
+        [Tooltip("删除存档时播放（留空 = 用保存音效）")]
+        public string deleteSfx = "";
+
+        [Range(0f, 1f)]
+        public float systemSfxVolume = 0.8f;
 
         [Header("分支 / 数值")]
         [Tooltip("选项按钮面板；留空会自动创建")]
@@ -138,6 +206,61 @@ namespace VN
 
             if (audioManager == null)
                 audioManager = GetComponentInChildren<VNAudioManager>();
+
+            InitBlindMaterials();
+        }
+
+        // ---------------- 失明滤镜 ----------------
+
+        private void InitBlindMaterials()
+        {
+            var shader = Resources.Load<Shader>("Shaders/VNBlindEffect");
+            if (shader == null) shader = Shader.Find("VN/BlindEffect");
+            if (shader == null)
+            {
+                Debug.LogWarning("[VN] 找不到失明滤镜 Shader（VN/BlindEffect）");
+                return;
+            }
+
+            if (backgroundA != null)
+            {
+                _blindMatA = new Material(shader);
+                backgroundA.material = _blindMatA;
+            }
+
+            if (backgroundB != null)
+            {
+                _blindMatB = new Material(shader);
+                backgroundB.material = _blindMatB;
+            }
+
+            _blindCurrent = _blindTarget = Mathf.Clamp01(blindAmount);
+            ApplyBlindValues();
+        }
+
+        private void ApplyBlindValues()
+        {
+            blindAmount = _blindCurrent;
+            if (_blindMatA != null) _blindMatA.SetFloat("_BlindAmount", _blindCurrent);
+            if (_blindMatB != null) _blindMatB.SetFloat("_BlindAmount", _blindCurrent);
+        }
+
+        private void UpdateBlind()
+        {
+            if (Mathf.Abs(_blindCurrent - _blindTarget) < 0.0005f) return;
+
+            float step = _blindFadeTime > 0.01f
+                ? Time.unscaledDeltaTime / _blindFadeTime
+                : 1f;
+
+            _blindCurrent = Mathf.MoveTowards(_blindCurrent, _blindTarget, step);
+            ApplyBlindValues();
+        }
+
+        private void OnDestroy()
+        {
+            if (_blindMatA != null) Destroy(_blindMatA);
+            if (_blindMatB != null) Destroy(_blindMatB);
         }
 
         /// <summary>
@@ -170,7 +293,159 @@ namespace VN
         private void Start()
         {
             EnsureSystemPanel();
+
+#if UNITY_EDITOR
+            // 从编辑器「▶ 播放」进来时，测试起点通过 SessionState 传递，不写进场景
+            if (UnityEditor.SessionState.GetString("VN.TestScriptPath", "") == scriptAssetPath)
+            {
+                int testLine = UnityEditor.SessionState.GetInt("VN.TestStartLine", 0);
+                UnityEditor.SessionState.EraseString("VN.TestScriptPath");
+                UnityEditor.SessionState.EraseInt("VN.TestStartLine");
+
+                HideTitleScreen();
+                LoadAndPlay(scriptAssetPath, testLine);
+                return;
+            }
+#endif
+
+            if (showTitleOnStart)
+            {
+                ShowTitleScreen();
+                return;
+            }
+
             if (playOnStart) LoadAndPlay(scriptAssetPath);
+        }
+
+        /// <summary>加载并从指定行开始播放。</summary>
+        public void LoadAndPlay(string assetPath, int startLine)
+        {
+            int old = startLineIndex;
+            startLineIndex = startLine;
+            LoadAndPlay(assetPath);
+            startLineIndex = old;
+        }
+
+        // ---------------- 主菜单 ----------------
+
+        public void ShowTitleScreen()
+        {
+            if (_titleScreen == null)
+            {
+                var go = new GameObject("VN Title Screen");
+                go.transform.SetParent(transform, false);
+
+                _titleScreen = go.AddComponent<VNTitleScreen>();
+                _titleScreen.player = this;
+                _titleScreen.font = dialogueFont;
+                _titleScreen.title = gameTitle;
+                _titleScreen.subtitle = gameSubtitle;
+                _titleScreen.titleMusic = titleMusic;
+                _titleScreen.titleMusicVolume = titleMusicVolume;
+
+                if (titleBackground == null)
+                {
+                    titleBackground = Resources.Load<Sprite>("VN/BG/title");
+                    if (titleBackground == null)
+                        titleBackground = Resources.Load<Sprite>("VN/BG/像素田园：晴日与雷云");
+                    if (titleBackground == null)
+                        titleBackground = Resources.Load<Sprite>("VN/BG/暴雨中的乡间小屋");
+                }
+                _titleScreen.backgroundSprite = titleBackground;
+            }
+
+            if (dialogueRoot != null) dialogueRoot.SetActive(false);
+            if (savePanel != null) savePanel.gameObject.SetActive(false);
+
+            _titleScreen.Show();
+        }
+
+        private void HideTitleScreen()
+        {
+            if (_titleScreen != null) _titleScreen.Hide();
+
+            if (dialogueRoot != null) dialogueRoot.SetActive(true);
+            if (savePanel != null) savePanel.gameObject.SetActive(true);
+        }
+
+        public void StartNewGame()
+        {
+            HideTitleScreen();
+
+            state = new VNState();
+            choiceHistory.Clear();
+            log.Clear();
+            _curActors.Clear();
+            _index = -1;
+            _pendingChoices = false;
+
+            if (choicePanel != null) choicePanel.Hide();
+            ApplyBackgroundImmediate("");
+            ResetCamera();
+
+            // 永远从「起始章节」开始，不受编辑器调试时临时切过的剧本影响
+            var chapter = string.IsNullOrWhiteSpace(startChapter) ? scriptAssetPath : startChapter;
+            scriptAssetPath = chapter;
+
+            LoadAndPlay(chapter);
+        }
+
+        public int FindMostRecentSlot()
+        {
+            int best = -1;
+            string bestTime = "";
+
+            for (int i = 0; i < VNSaveSystem.SlotCount; i++)
+            {
+                var data = VNSaveSystem.Read(i);
+                if (data == null || data.IsEmpty) continue;
+
+                var t = data.savedAt ?? "";
+                if (best < 0 || string.CompareOrdinal(t, bestTime) > 0)
+                {
+                    bestTime = t;
+                    best = i;
+                }
+            }
+
+            return best;
+        }
+
+        public void ContinueGame()
+        {
+            int slot = FindMostRecentSlot();
+            if (slot < 0)
+            {
+                ShowToast("还没有存档，先开始新游戏吧");
+                return;
+            }
+
+            HideTitleScreen();
+            LoadSlot(slot);
+        }
+
+        public void OpenSettingsFromTitle()
+        {
+            EnsureSystemPanel();
+            if (savePanel == null) return;
+
+            savePanel.gameObject.SetActive(true);
+            savePanel.OpenPage(1);
+        }
+
+        public void QuitGame()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
+
+        /// <summary>回到主菜单（标题画面上仍然可以继续 / 设置 / 退出）。</summary>
+        public void ReturnToTitle()
+        {
+            ShowTitleScreen();
         }
 
         /// <summary>创建系统面板与右上角按钮（面板保持隐藏）。</summary>
@@ -190,15 +465,71 @@ namespace VN
         {
             if (!LoadScript(assetPath)) return;
 
+            if (showChapterCard && _script != null && !string.IsNullOrWhiteSpace(_script.title))
+            {
+                PlayChapterCard(startLineIndex);
+                return;
+            }
+
             _index = Mathf.Clamp(startLineIndex - 1, -1, _script.lines.Count - 1);
             Advance();
+        }
+
+        // ---------------- 章节过场 ----------------
+
+        /// <summary>"第一章 回忆" → 标签「第一章」+ 标题「回忆」。</summary>
+        private static void SplitChapterTitle(string full, out string label, out string title)
+        {
+            label = "";
+            title = full ?? "";
+
+            if (string.IsNullOrWhiteSpace(full)) return;
+
+            var s = full.Trim();
+            int sp = s.IndexOf(' ');
+            if (sp > 0 && sp < s.Length - 1)
+            {
+                label = s.Substring(0, sp).Trim();
+                title = s.Substring(sp + 1).Trim();
+            }
+        }
+
+        private VNChapterCard EnsureChapterCard()
+        {
+            if (_chapterCard == null)
+            {
+                var go = new GameObject("VN Chapter Card");
+                go.transform.SetParent(transform, false);
+
+                _chapterCard = go.AddComponent<VNChapterCard>();
+                _chapterCard.font = dialogueFont;
+                _chapterCard.fadeToBlack = chapterCardFadeToBlack;
+                _chapterCard.hold = chapterCardHold;
+                _chapterCard.fadeOut = chapterCardFadeOut;
+            }
+
+            return _chapterCard;
+        }
+
+        private void PlayChapterCard(int startLine)
+        {
+            var card = EnsureChapterCard();
+            SplitChapterTitle(_script.title, out var label, out var title);
+
+            card.Play(label, title, () =>
+            {
+                _index = Mathf.Clamp(startLine - 1, -1, _script.lines.Count - 1);
+                Advance();
+            });
         }
 
         /// <summary>只加载剧本，不开始播放。返回是否成功。</summary>
         public bool LoadScript(string assetPath)
         {
             scriptAssetPath = assetPath;
-            var textAsset = VNAssetLoader.LoadText(assetPath);            if (textAsset == null)
+            var textAsset = VNAssetLoader.LoadText(assetPath);
+
+            if (textAsset == null)
             {
                 Debug.LogError($"[VN] 读不到剧本：{assetPath}");
                 return false;
@@ -215,8 +546,79 @@ namespace VN
             return true;
         }
 
+        /// <summary>
+        /// 切换章节：换一份剧本 JSON，保留数值、选择历史、台词记录。
+        /// clearStage = true 时会先清空立绘和镜头，让新章节从干净状态开始。
+        /// </summary>
+        public bool EnterChapter(string chapterPath, int startLine = 0, bool clearStage = true)
+        {
+            if (string.IsNullOrWhiteSpace(chapterPath)) return false;
+
+            var textAsset = VNAssetLoader.LoadText(chapterPath);
+            if (textAsset == null)
+            {
+                Debug.LogError($"[VN] 找不到章节：{chapterPath}");
+                return false;
+            }
+
+            var script = JsonUtility.FromJson<VNScript>(textAsset.text);
+            if (script == null || script.lines == null || script.lines.Count == 0)
+            {
+                Debug.LogError($"[VN] 章节为空或解析失败：{chapterPath}");
+                return false;
+            }
+
+            scriptAssetPath = chapterPath;
+            _script = script;
+
+            if (clearStage) ClearStageForNewChapter();
+
+            if (showChapterCard && !string.IsNullOrWhiteSpace(script.title))
+            {
+                PlayChapterCard(startLine);
+                return true;
+            }
+
+            _index = Mathf.Clamp(startLine - 1, -1, _script.lines.Count - 1);
+            Advance();
+            return true;
+        }
+
+        private void ClearStageForNewChapter()
+        {
+            foreach (var kv in _actors)
+            {
+                if (kv.Value == null) continue;
+                kv.Value.gameObject.SetActive(false);
+            }
+
+            _curActors.Clear();
+            _slotCharacter.Clear();
+
+            ResetCamera();
+
+            if (choicePanel != null) choicePanel.Hide();
+            _pendingChoices = false;
+            _typing = false;
+        }
+
         private void Update()
         {
+            UpdateBlind();
+
+            // 章节过场期间：点击可跳过，且不推进剧情
+            if (_chapterCard != null && _chapterCard.IsPlaying)
+            {
+                if (Input.GetMouseButtonDown(0)
+                    || Input.GetKeyDown(KeyCode.Space)
+                    || Input.GetKeyDown(KeyCode.Return)
+                    || Input.GetKeyDown(KeyCode.KeypadEnter))
+                {
+                    _chapterCard.Skip();
+                }
+                return;
+            }
+
             if (_script == null) return;
 
             if (enableSaveHotkeys)
@@ -307,6 +709,13 @@ namespace VN
                 var cur = _script.lines[_index];
                 if (cur != null)
                 {
+                    // 章节切换优先级最高
+                    if (!string.IsNullOrWhiteSpace(cur.nextChapter))
+                    {
+                        if (EnterChapter(cur.nextChapter, Mathf.Max(0, cur.nextChapterLine))) return;
+                        Debug.LogWarning($"[VN] 章节切换失败：{cur.nextChapter}");
+                    }
+
                     if (!string.IsNullOrWhiteSpace(cur.gotoNode))
                     {
                         int idx = FindLineByNode(cur.gotoNode);
@@ -323,11 +732,36 @@ namespace VN
 
             if (_index + 1 >= _script.lines.Count)
             {
+                if (autoNextChapter && TryAutoNextChapter()) return;
                 Debug.Log("[VN] 剧本结束");
                 return;
             }
             _index++;
             ShowLine(_script.lines[_index]);
+        }
+
+        /// <summary>按 Data 目录的文件名顺序，自动进入当前章节的下一章。</summary>
+        private bool TryAutoNextChapter()
+        {
+            var assets = Resources.LoadAll<TextAsset>("VN/Data");
+            if (assets == null || assets.Length == 0) return false;
+
+            var paths = new List<string>();
+            foreach (var ta in assets)
+                paths.Add("Assets/VN/Resources/VN/Data/" + ta.name + ".json");
+
+            paths.Sort(System.StringComparer.OrdinalIgnoreCase);
+
+            int current = paths.IndexOf(scriptAssetPath);
+            if (current < 0 || current + 1 >= paths.Count)
+            {
+                Debug.Log("[VN] 已经是最后一个章节");
+                return false;
+            }
+
+            var next = paths[current + 1];
+            Debug.Log($"[VN] 自动进入下一章：{System.IO.Path.GetFileName(next)}");
+            return EnterChapter(next, 0);
         }
 
         public void RestartCurrentLine()
@@ -352,9 +786,14 @@ namespace VN
             {
                 ApplyBackground(line);
                 ApplyActors(line);
+                ApplyCardPortrait(line);
                 ApplyAudio(line);
                 ApplyCamera(line);
             }
+
+            // 结局 CG / 视频
+            if (!string.IsNullOrWhiteSpace(line.endingVideo) || !string.IsNullOrWhiteSpace(line.endingCg))
+                ShowEndingMedia(line);
 
             // 节点标记与效果
             if (!string.IsNullOrWhiteSpace(line.nodeId))
@@ -367,6 +806,14 @@ namespace VN
 
             _pendingChoices = line.choices != null && line.choices.Count > 0;
             if (choicePanel != null) choicePanel.Hide();
+
+            // 分支点自动存档
+            if (_pendingChoices && autoSaveOnChoice)
+                AutoSave("分支点");
+
+            // 到达结局行
+            if (line.endGame)
+                StartCoroutine(EndGameRoutine(line.endDelay));
 
             // 历史记录
             if (!string.IsNullOrWhiteSpace(line.text))
@@ -384,6 +831,13 @@ namespace VN
             ApplySpeaker(line);
             ApplySpeakerHighlight(line);
             PlayTransition(line);
+
+            // 失明滤镜
+            if (line.useBlind)
+            {
+                _blindTarget = Mathf.Clamp01(line.blind);
+                _blindFadeTime = Mathf.Max(0.05f, line.blindFade);
+            }
 
             SetIndicatorVisible(false);
             _fullText = line.text ?? "";
@@ -409,6 +863,10 @@ namespace VN
             else
             {
                 StartTypewriter(line);
+
+                // 默认流程：多音轨可以按 at 自行排时间
+                if (line.audio != null && line.audio.Count > 0)
+                    StartCoroutine(ScheduleAudioCues(line));
             }
         }
 
@@ -454,6 +912,57 @@ namespace VN
         [Tooltip("全局默认说话音：角色没单独配语音时用这个（可选）")]
         public string defaultVoice = "";
 
+        [Header("角色卡")]
+        [Tooltip("角色卡 JSON（立绘 / 说话音 / 字体一次配好）；留空则不使用")]
+        public string characterSetPath = "Assets/VN/Resources/VN/Data/characters.json";
+
+        private VNCharacterSet _characters;
+        private bool _charactersLoaded;
+
+        private void LoadCharacterSet()
+        {
+            if (_charactersLoaded) return;
+            _charactersLoaded = true;
+
+            if (string.IsNullOrWhiteSpace(characterSetPath)) return;
+
+            var text = VNAssetLoader.LoadText(characterSetPath);
+            if (text == null)
+            {
+                Debug.LogWarning($"[VN] 找不到角色卡：{characterSetPath}");
+                return;
+            }
+
+            _characters = JsonUtility.FromJson<VNCharacterSet>(text.text);
+        }
+
+        /// <summary>按显示名或 id 查角色卡。</summary>
+        public VNCharacter FindCharacter(string nameOrId)
+        {
+            LoadCharacterSet();
+            if (_characters == null || _characters.characters == null) return null;
+
+            var key = (nameOrId ?? "").Trim();
+            if (key.Length == 0) return null;
+
+            foreach (var c in _characters.characters)
+            {
+                if (c == null) continue;
+                if (c.id == key || c.displayName == key) return c;
+            }
+
+            foreach (var c in _characters.characters)
+            {
+                if (c == null) continue;
+                if (!string.IsNullOrWhiteSpace(c.displayName) && (key.Contains(c.displayName) || c.displayName.Contains(key)))
+                    return c;
+                if (!string.IsNullOrWhiteSpace(c.id) && key.Contains(c.id))
+                    return c;
+            }
+
+            return null;
+        }
+
         private void ResolveVoice(VNLine line)
         {
             _voicePath = "";
@@ -474,21 +983,51 @@ namespace VN
                 return;
             }
 
-            // 2) 说话角色（先按槽位，再按名字匹配角色 id）
-            var actor = ResolveSpeakerActor(line);
+            // 2) 角色卡（按说话人名字查）
+            var character = FindCharacter(line.name);
+            if (character != null)
+            {
+                var cardMode = (character.voiceMode ?? "").Trim().ToLowerInvariant();
 
+                // 角色卡明确写了 none：这个角色就是不出声
+                if (cardMode == "none")
+                {
+                    ApplyLineVoiceOverrides(line);
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(character.voice))
+                {
+                    _voicePath = character.voice.Trim();
+                    _voiceMode = cardMode.Length > 0 ? cardMode : "char";
+                    _voiceVolume = character.voiceVolume;
+                    _voicePitchRandom = character.voicePitchRandom;
+                    _voiceEveryN = Mathf.Max(1, character.voiceEveryNChars);
+                    ApplyLineVoiceOverrides(line);
+                    return;
+                }
+            }
+
+            // 3) 场内角色
+            var actor = ResolveSpeakerActor(line);
             if (actor != null && !string.IsNullOrWhiteSpace(actor.voice))
             {
                 ApplyActorVoice(actor, line);
                 return;
             }
 
-            // 3) 全局默认（不跨角色乱抓，避免串音）
+            // 4) 全局默认
             if (!string.IsNullOrWhiteSpace(defaultVoice))
             {
                 _voicePath = defaultVoice.Trim();
                 if (line.voiceVolume > 0f) _voiceVolume = line.voiceVolume;
             }
+        }
+
+        private void ApplyLineVoiceOverrides(VNLine line)
+        {
+            if (line.voiceVolume > 0f) _voiceVolume = line.voiceVolume;
+            if (line.voiceEveryNChars > 0) _voiceEveryN = line.voiceEveryNChars;
         }
 
         private void ApplyActorVoice(VNActor actor, VNLine line)
@@ -526,23 +1065,19 @@ namespace VN
                 foreach (var kv in _curActors)
                 {
                     var a = kv.Value;
-                    if (a == null || string.IsNullOrWhiteSpace(a.character)) continue;
-                    if (name.Contains(a.character.Trim())) return a;
+                    if (a == null) continue;
+
+                    var id = (a.character ?? "").Trim();
+                    if (id.Length == 0) continue;
+
+                    // 双向包含：角色 id 叫 "凛" 或 "lin" 都能对上说话人「凛」
+                    if (name.Contains(id) || id.Contains(name)) return a;
                 }
             }
 
-            // 名字对不上角色 id 时，如果场上只有一个角色配了语音，就认为是他（单角色场景很常见）
-            VNActor sole = null;
-            int voiced = 0;
-            foreach (var kv in _curActors)
-            {
-                var a = kv.Value;
-                if (a == null || string.IsNullOrWhiteSpace(a.voice)) continue;
-                sole = a;
-                voiced++;
-            }
-
-            return voiced == 1 ? sole : null;
+            // 名字对不上任何在场角色 → 当作没有说话人（走默认语音或静音）。
+            // 这里不能再「场上只有一个配音角色就认定是他」，否则第一人称/旁白会串音。
+            return null;
         }
 
         private IEnumerator RunSteps(VNLine line)
@@ -581,6 +1116,7 @@ namespace VN
             if (step.camera) ApplyCamera(line);
             if (step.transition) PlayTransition(line);
             if (step.bgm) ApplyBgm(line);
+            if (step.audio) ApplyAudioCues(line);
             if (step.sfx) ApplySfx(line);
             if (step.text) StartTypewriter(line);
         }
@@ -602,6 +1138,7 @@ namespace VN
             ApplyActors(line);
             ApplyBgm(line);
             ApplySfx(line);
+            ApplyAudioCues(line);
             ApplyCamera(line);
             PlayTransition(line);
 
@@ -920,6 +1457,13 @@ namespace VN
 
         private void JumpTo(VNChoice choice)
         {
+            // 章节跳转优先
+            if (!string.IsNullOrWhiteSpace(choice.targetChapter))
+            {
+                if (EnterChapter(choice.targetChapter, Mathf.Max(0, choice.targetChapterLine))) return;
+                Debug.LogWarning($"[VN] 章节切换失败：{choice.targetChapter}");
+            }
+
             if (!string.IsNullOrWhiteSpace(choice.targetNode))
             {
                 int idx = FindLineByNode(choice.targetNode);
@@ -1000,26 +1544,23 @@ namespace VN
         /// <summary>字体优先级：行级 → 说话角色 → 播放器默认。</summary>
         private Font ResolveFont(VNLine line)
         {
+            // 1) 行级
             if (line.style != null && !string.IsNullOrWhiteSpace(line.style.font))
             {
                 var f = VNAssetLoader.LoadFont(line.style.font);
                 if (f != null) return f;
             }
 
-            VNActor actor = null;
-            var slot = ParseSlot(line.speakerSlot);
-            if (_curActors.TryGetValue(slot, out var speaker) && speaker != null && !string.IsNullOrWhiteSpace(speaker.font))
+            // 2) 角色卡
+            var character = FindCharacter(line.name);
+            if (character != null && !string.IsNullOrWhiteSpace(character.font))
             {
-                actor = speaker;
-            }
-            else
-            {
-                foreach (var kv in _curActors)
-                {
-                    if (kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.font)) { actor = kv.Value; break; }
-                }
+                var f = VNAssetLoader.LoadFont(character.font);
+                if (f != null) return f;
             }
 
+            // 3) 场内角色
+            var actor = ResolveSpeakerActor(line);
             if (actor != null && !string.IsNullOrWhiteSpace(actor.font))
             {
                 var f = VNAssetLoader.LoadFont(actor.font);
@@ -1123,8 +1664,9 @@ namespace VN
 
             if (!string.IsNullOrWhiteSpace(line.bgm))
             {
-                // 填了音乐就播放（淡入用 bgmFade）
-                audioManager.PlayBgm(line.bgm, line.bgmVolume, fade);
+                // 播放：淡入时长可以单独设；可选从上次进度继续；可指定起始音调
+                float fadeIn = line.bgmFadeIn > 0f ? line.bgmFadeIn : fade;
+                audioManager.PlayBgm(line.bgm, line.bgmVolume, fadeIn, line.bgmResume, line.bgmPitchStart);
                 _curBgmVolume = line.bgmVolume;
             }
             else if (action == "stop")
@@ -1138,6 +1680,12 @@ namespace VN
                 // 只改音调，不停
                 audioManager.TweenPitch(line.bgmPitch, line.bgmPitchDuration);
             }
+            else if (action == "fade")
+            {
+                // 渐变到指定音量（不停止），可同时变调
+                audioManager.FadeBgmTo(line.bgmVolume, fade, line.bgmPitch, line.bgmPitchDuration);
+                _curBgmVolume = line.bgmVolume;
+            }
             else if (action == "restart")
             {
                 audioManager.RestartBgm(fade);
@@ -1150,15 +1698,269 @@ namespace VN
             audioManager.PlaySfx(line.sfx, line.sfxVolume);
         }
 
+        // ---------------- 多音轨 ----------------
+
+        /// <summary>把这一行所有的音轨指令立即应用（不等待 at 时间）。</summary>
+        private void ApplyAudioCues(VNLine line)
+        {
+            if (audioManager == null || line.audio == null || line.audio.Count == 0) return;
+            foreach (var cue in line.audio) ApplyAudioCue(cue);
+        }
+
+        private void ApplyAudioCue(VNAudioCue cue)
+        {
+            if (cue == null || audioManager == null) return;
+
+            var track = string.IsNullOrWhiteSpace(cue.track) ? "bgm" : cue.track.Trim().ToLowerInvariant();
+            var action = string.IsNullOrWhiteSpace(cue.action) ? "play" : cue.action.Trim().ToLowerInvariant();
+            float fade = Mathf.Max(0.01f, cue.fade);
+
+            if (track == "bgm")
+            {
+                if (action == "stop") audioManager.StopBgm(fade, cue.pitch, cue.pitchDuration);
+                else if (action == "pitch") audioManager.TweenPitch(cue.pitch, cue.pitchDuration);
+                else if (!string.IsNullOrWhiteSpace(cue.clip)) audioManager.PlayBgm(cue.clip, cue.volume, fade);
+                return;
+            }
+
+            if (action == "stop") audioManager.StopTrack(track, fade, cue.pitch, cue.pitchDuration);
+            else if (action == "pitch") audioManager.SetTrackPitch(track, cue.pitch, cue.pitchDuration);
+            else if (!string.IsNullOrWhiteSpace(cue.clip))
+                audioManager.PlayTrack(track, cue.clip, cue.volume, fade, cue.loop, cue.pitch);
+        }
+
+        /// <summary>按每条 cue 的 at 时间依次触发（用于默认流程，没有演出顺序表时）。</summary>
+        private IEnumerator ScheduleAudioCues(VNLine line)
+        {
+            if (line.audio == null || line.audio.Count == 0) yield break;
+
+            var ordered = new List<VNAudioCue>();
+            foreach (var c in line.audio)
+                if (c != null) ordered.Add(c);
+            ordered.Sort((a, b) => a.at.CompareTo(b.at));
+
+            float elapsed = 0f;
+            foreach (var cue in ordered)
+            {
+                while (elapsed < cue.at)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+                ApplyAudioCue(cue);
+            }
+        }
+
+        private VNEndingScreen _endingScreen;
+
+        private VNEndingScreen EnsureEndingScreen()
+        {
+            if (_endingScreen == null)
+            {
+                var go = new GameObject("VN Ending Screen");
+                go.transform.SetParent(transform, false);
+                _endingScreen = go.AddComponent<VNEndingScreen>();
+                _endingScreen.font = dialogueFont;
+            }
+            return _endingScreen;
+        }
+
+        /// <summary>显示结局 CG 或视频，并隐藏对话框。</summary>
+        private void ShowEndingMedia(VNLine line)
+        {
+            var screen = EnsureEndingScreen();
+
+            if (!string.IsNullOrWhiteSpace(line.endingVideo))
+            {
+                screen.PlayVideo(line.endingVideo, line.endingLoop, null);
+            }
+            else
+            {
+                screen.ShowCg(line.endingCg, line.endingLoop, null);
+            }
+
+            if (dialogueRoot != null) dialogueRoot.SetActive(false);
+        }
+
+        private IEnumerator EndGameRoutine(float delay)
+        {
+            // 等这一行打完字再开始计时，免得台词还没显示完就退了
+            while (_typing) yield return null;
+
+            if (delay > 0f) yield return new WaitForSecondsRealtime(delay);
+
+            if (audioManager != null) audioManager.StopBgm(1.5f);
+            yield return new WaitForSecondsRealtime(1.5f);
+
+            if (endingReturnToTitle)
+            {
+                EndToTitle();
+            }
+            else
+            {
+                QuitGame();
+            }
+        }
+
+        /// <summary>结局收尾：清掉结局画面，回到主菜单。</summary>
+        public void EndToTitle()
+        {
+            if (_endingScreen != null) _endingScreen.Hide();
+
+            // 复位剧情状态，免得下次「新游戏」还停在上一次的位置
+            _index = -1;
+            _script = null;
+            _pendingChoices = false;
+            state = new VNState();
+            choiceHistory.Clear();
+            log.Clear();
+            _curActors.Clear();
+            HideAllActors();
+            ApplyBackgroundImmediate("");
+            ResetCamera();
+
+            if (choicePanel != null) choicePanel.Hide();
+            if (bodyText != null) bodyText.text = "";
+            SetIndicatorVisible(false);
+            if (namePlate != null) namePlate.SetActive(false);
+
+            if (dialogueRoot != null) dialogueRoot.SetActive(false);
+            if (savePanel != null) savePanel.gameObject.SetActive(false);
+
+            ShowTitleScreen();
+        }
+
         private void ApplyActors(VNLine line)
         {
+            // 本行不显示立绘（结局 / CG 段）
+            if (line.suppressActors)
+            {
+                HideAllActors();
+                return;
+            }
+
+            // 全体退场
+            if (line.clearActors)
+            {
+                HideAllActors();
+            }
+
+            // 指定角色退场
+            ApplyCharacterExits(line);
+
             if (line.actors == null || line.actors.Count == 0) return;
 
             foreach (var actor in line.actors)
             {
                 if (actor == null) continue;
+
+                // 空条目（既没图也没角色）直接跳过，避免占位和后续误判
+                if (string.IsNullOrWhiteSpace(actor.sprite) && string.IsNullOrWhiteSpace(actor.character))
+                    continue;
+
                 ApplyActor(actor);
             }
+        }
+
+        /// <summary>让指定角色退场：隐藏并移除他在任意槽位的立绘。</summary>
+        private void ApplyCharacterExits(VNLine line)
+        {
+            if (line == null || line.exitCharacters == null || line.exitCharacters.Count == 0) return;
+
+            EnsureActorMap();
+
+            foreach (var raw in line.exitCharacters)
+            {
+                var id = (raw ?? "").Trim();
+                if (id.Length == 0) continue;
+
+                var slots = new List<VNSlot>();
+                foreach (var kv in _curActors)
+                {
+                    if (kv.Value != null && kv.Value.character == id) slots.Add(kv.Key);
+                }
+
+                foreach (var slot in slots)
+                {
+                    if (_actorRoutines.TryGetValue(slot, out var run) && run != null) StopCoroutine(run);
+
+                    if (_actors.TryGetValue(slot, out var img) && img != null)
+                    {
+                        var cg = img.GetComponent<CanvasGroup>();
+                        if (cg != null) cg.alpha = 0f;
+                        img.gameObject.SetActive(false);
+                    }
+
+                    _curActors.Remove(slot);
+                }
+            }
+        }
+
+        /// <summary>这一行是否要求某个角色退场。</summary>
+        private static bool WantsExit(VNLine line, string characterId)
+        {
+            if (line == null || line.exitCharacters == null || string.IsNullOrWhiteSpace(characterId)) return false;
+
+            foreach (var raw in line.exitCharacters)
+            {
+                if ((raw ?? "").Trim() == characterId) return true;
+            }
+            return false;
+        }
+
+        private void HideAllActors()
+        {
+            EnsureActorMap();
+
+            foreach (var kv in _actors)
+            {
+                if (kv.Value == null) continue;
+                if (_actorRoutines.TryGetValue(kv.Key, out var run) && run != null) StopCoroutine(run);
+
+                var cg = kv.Value.GetComponent<CanvasGroup>();
+                if (cg != null) cg.alpha = 0f;
+                kv.Value.gameObject.SetActive(false);
+            }
+
+            _curActors.Clear();
+        }
+
+        /// <summary>
+        /// 说话人匹配到角色卡时，自动按角色卡配置出图（替代手配立绘栏）。
+        /// 行级 actors 优先，手配了就不走这里。
+        /// </summary>
+        private void ApplyCardPortrait(VNLine line)
+        {
+            if (line == null || line.suppressActors) return;
+            if (line.actors != null && line.actors.Count > 0) return;
+
+            var card = FindCharacter(line.name);
+            if (card == null) return;
+            if (!card.portraitEnabled) return;
+            if (string.IsNullOrWhiteSpace(card.portrait)) return;
+
+            // 这一行要求他退场 → 不自动出图
+            if (WantsExit(line, card.id)) return;
+
+            var portrait = card.portrait.Trim();
+
+            // 这个角色已经在任意槽位显示了 → 不重复出图（防止剧本手配 + 角色卡自动叠成两个）
+            foreach (var kv in _curActors)
+            {
+                var existing = kv.Value;
+                if (existing == null || existing.hide) continue;
+                if (existing.sprite == portrait) return;
+            }
+
+            var actor = new VNActor
+            {
+                slot = string.IsNullOrWhiteSpace(card.portraitSlot) ? "center" : card.portraitSlot.Trim().ToLowerInvariant(),
+                sprite = portrait,
+                character = card.id,
+                motion = "fade",
+            };
+
+            ApplyActor(actor);
         }
 
         private void ApplyActor(VNActor actor)
@@ -1708,6 +2510,8 @@ namespace VN
                 // 等这一帧渲染完再截图，否则可能拿到黑屏
                 if (Application.isPlaying) StartCoroutine(CaptureThumbDelayed(slot));
                 else VNSaveSystem.SaveThumbnail(slot);
+
+                PlaySystemSfx(saveSfx);
             }
             ShowToast(ok ? $"已保存到槽位 {slot + 1}" : "保存失败");
             return ok;
@@ -1729,6 +2533,8 @@ namespace VN
             }
 
             bool ok = RestoreState(data);
+            if (ok) PlaySystemSfx(loadSfx);
+
             ShowToast(ok ? $"已读取槽位 {slot + 1}" : "读档失败");
             return ok;
         }
@@ -1742,7 +2548,50 @@ namespace VN
         {
             VNSaveSystem.Delete(slot);
             VNSaveSystem.DeleteThumbnail(slot);
+
+            PlaySystemSfx(string.IsNullOrWhiteSpace(deleteSfx) ? saveSfx : deleteSfx);
             ShowToast($"已删除槽位 {slot + 1}");
+        }
+
+        private void PlaySystemSfx(string path)
+        {
+            if (audioManager == null || string.IsNullOrWhiteSpace(path)) return;
+            audioManager.PlaySfx(path, systemSfxVolume);
+        }
+
+        [Header("自动存档")]
+        [Tooltip("遇到分支（有选项的行）时自动保存一份")]
+        public bool autoSaveOnChoice = true;
+
+        /// <summary>自动存档：写到独立的 auto 槽，不占玩家的 6 个手动槽。</summary>
+        public bool AutoSave(string reason = "")
+        {
+            try
+            {
+                var data = CaptureState(VNSaveSystem.AutoSlot);
+                if (!VNSaveSystem.Write(data)) return false;
+
+                if (Application.isPlaying) StartCoroutine(CaptureThumbDelayed(VNSaveSystem.AutoSlot));
+                else VNSaveSystem.SaveThumbnail(VNSaveSystem.AutoSlot);
+
+                Debug.Log("[VN] 自动存档" + (string.IsNullOrEmpty(reason) ? "" : "（" + reason + "）"));
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[VN] 自动存档失败：" + ex.Message);
+                return false;
+            }
+        }
+
+        public bool HasAutoSave()
+        {
+            return VNSaveSystem.Exists(VNSaveSystem.AutoSlot);
+        }
+
+        public bool LoadAutoSave()
+        {
+            return LoadSlot(VNSaveSystem.AutoSlot);
         }
 
         public bool RestoreState(VNSaveSlot data)

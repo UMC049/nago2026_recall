@@ -25,6 +25,12 @@ namespace VN
         [Tooltip("选择后跳到的行号（0 起）；-1 = 不用")]
         public int targetLine = -1;
 
+        [Tooltip("选择后进入另一个章节（剧本 JSON 路径）；填了就优先切章")]
+        public string targetChapter = "";
+
+        [Tooltip("新章节从第几行开始（0 起）")]
+        public int targetChapterLine = 0;
+
         [Tooltip("显示条件，如 affection >= 3 && !visited(route_a)；留空 = 总是显示")]
         public string condition = "";
 
@@ -71,6 +77,95 @@ namespace VN
 
         [Tooltip("应用本行的 BGM 指令")]
         public bool bgm = false;
+
+        [Tooltip("触发本行的多音轨指令")]
+        public bool audio = false;
+    }
+
+    /// <summary>
+    /// 一条音轨指令。track 相同的就是同一条音轨（会互相替换），
+    /// 不同 track 可以同时发声，比如 bgm + ambient。
+    /// </summary>
+    [Serializable]
+    public class VNAudioCue
+    {
+        [Tooltip("音轨名：bgm 是主音乐轨；其他名字会自动新建独立音轨，如 ambient / rain / sfx2")]
+        public string track = "bgm";
+
+        [Tooltip("音频路径；action = stop / pitch 时可以留空")]
+        public string clip = "";
+
+        [Tooltip("指令：play 播放 / stop 停止 / pitch 只变调")]
+        public string action = "play";
+
+        [Range(0f, 1f)]
+        public float volume = 0.7f;
+
+        [Tooltip("淡入 / 淡出时长（秒）")]
+        public float fade = 0.8f;
+
+        [Tooltip("相对本行开始的时间（秒）")]
+        public float at = 0f;
+
+        [Tooltip("是否循环（环境音通常要开）")]
+        public bool loop = true;
+
+        [Tooltip("音调倍率（1 = 原调）")]
+        public float pitch = 1f;
+
+        [Tooltip("变调过渡时长（秒）；0 = 立即")]
+        public float pitchDuration = 0f;
+    }
+
+    /// <summary>
+    /// 角色卡：一个角色的固有一切（默认立绘、说话音、字体）。
+    /// 编辑剧情时选一下角色就自动带上，不用每行重复配。
+    /// </summary>
+    [Serializable]
+    public class VNCharacter
+    {
+        [Tooltip("内部 id，英文/拼音都行，如 lin / wei / me")]
+        public string id = "";
+
+        [Tooltip("显示名 = 剧本里的说话人，如「凛」「薇」「我」")]
+        public string displayName = "";
+
+        [Tooltip("默认立绘（剧本行没单独配立绘时使用）")]
+        public string portrait = "";
+
+        [Tooltip("是否在剧本里自动显示这个角色的立绘（关掉 = 只说话不出图）")]
+        public bool portraitEnabled = true;
+
+        [Tooltip("立绘固定槽位：left / center / right")]
+        public string portraitSlot = "center";
+
+        [Tooltip("说话音（合成器/乐器音色）")]
+        public string voice = "";
+
+        [Tooltip("char = 每字触发 / loop = 循环 / none = 这个角色不发声")]
+        public string voiceMode = "char";
+
+        [Range(0f, 1f)]
+        public float voiceVolume = 0.75f;
+
+        [Tooltip("每次触发的音调随机幅度")]
+        public float voicePitchRandom = 0.06f;
+
+        [Tooltip("每隔几个字触发一次")]
+        public int voiceEveryNChars = 1;
+
+        [Tooltip("角色字体（留空用默认）")]
+        public string font = "";
+
+        [TextArea(1, 3)]
+        [Tooltip("备注，只给你自己看")]
+        public string note = "";
+    }
+
+    [Serializable]
+    public class VNCharacterSet
+    {
+        public List<VNCharacter> characters = new List<VNCharacter>();
     }
 
     /// <summary>一条剧本指令：一行台词 + 可选的舞台变化。</summary>
@@ -101,20 +196,41 @@ namespace VN
         [Tooltip("BGM 淡入淡出时长（秒）")]
         public float bgmFade = 0.8f;
 
+        [Tooltip("播放时的淡入时长（秒）；0 = 用上面的淡入/淡出时长")]
+        public float bgmFadeIn = 0f;
+
+        [Tooltip("播放时使用的初始音调（1 = 原调，0.9 = 略低沉）")]
+        public float bgmPitchStart = 1f;
+
+        [Tooltip("同一首 BGM 重新播放时，从上次停止的位置继续")]
+        public bool bgmResume = false;
+
         [Tooltip("目标音调倍率（1 = 原调，0.5 = 低八度，1.5 = 高）")]
         public float bgmPitch = 1f;
 
         [Tooltip("音调过渡时长（秒）；0 = 立即，>0 = 持续变调")]
         public float bgmPitchDuration = 0f;
 
-        [Tooltip("一次性音效；留空 = 不播放")]
+        [Tooltip("本行的音效（单次，可叠加）")]
         public string sfx = "";
+
+        [Tooltip("多音轨指令：可以同时播放多条（bgm + 环境音），按 at 时间调度")]
+        public List<VNAudioCue> audio = new List<VNAudioCue>();
 
         [Range(0f, 1f)]
         public float sfxVolume = 1f;
 
         [Tooltip("本行要改变的立绘；为空则沿用上一行的立绘")]
         public List<VNActor> actors = new List<VNActor>();
+
+        [Tooltip("本行开始时清空所有立绘（全体退场）")]
+        public bool clearActors = false;
+
+        [Tooltip("本行不显示任何立绘（包括角色卡自动出图）。用于结局 / CG 段落")]
+        public bool suppressActors = false;
+
+        [Tooltip("本行让这些角色退场（填角色 id，例如 lin）。会隐藏并移除对应立绘，之后也不会被角色卡自动加回来")]
+        public List<string> exitCharacters = new List<string>();
 
         [Tooltip("是否应用镜头指令（平移 / 缩放 / 晃动）")]
         public bool useCamera = false;
@@ -153,6 +269,16 @@ namespace VN
         [Tooltip("演出顺序表：填了就按这里的时间执行，忽略上面的默认顺序")]
         public List<VNStageStep> steps = new List<VNStageStep>();
 
+        [Tooltip("是否应用失明 / 视力模糊滤镜")]
+        public bool useBlind = false;
+
+        [Range(0f, 1f)]
+        [Tooltip("失明强度：0 = 正常，1 = 完全失明（黑白、提亮、模糊、扭曲）")]
+        public float blind = 0f;
+
+        [Tooltip("滤镜渐变时长（秒）")]
+        public float blindFade = 2f;
+
         [Tooltip("本行的说话音覆盖（留空则用说话角色的语音）")]
         public string voice = "";
 
@@ -170,6 +296,28 @@ namespace VN
 
         [Tooltip("播放完这行后自动跳到某一行（从 0 开始，-1 = 不使用）")]
         public int gotoLine = -1;
+
+        [Tooltip("播放完这行后进入下一个章节（剧本 JSON 路径）；留空 = 不切章")]
+        public string nextChapter = "";
+
+        [Tooltip("新章节从第几行开始（0 起）")]
+        public int nextChapterLine = 0;
+
+        [Header("结局")]
+        [Tooltip("结局 CG：全屏图片（填了就盖住背景和立绘）")]
+        public string endingCg = "";
+
+        [Tooltip("结局视频：全屏播放（填了就优先播视频）")]
+        public string endingVideo = "";
+
+        [Tooltip("结局画面是否循环（视频 / CG）")]
+        public bool endingLoop = false;
+
+        [Tooltip("到达这一行后结束游戏（编辑器里停止播放，打包后退出程序）")]
+        public bool endGame = false;
+
+        [Tooltip("结束前等待几秒（留给玩家看结局画面）")]
+        public float endDelay = 3f;
 
         [TextArea(1, 3)]
         [Tooltip("备注，不进游戏，只给你自己看")]

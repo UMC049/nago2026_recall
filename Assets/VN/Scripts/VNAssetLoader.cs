@@ -12,8 +12,7 @@ namespace VN
     public static class VNAssetLoader
     {
         public static Sprite LoadSprite(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path)) return null;
+        {            if (string.IsNullOrWhiteSpace(path)) return null;
 
 #if UNITY_EDITOR
             var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
@@ -51,6 +50,18 @@ namespace VN
             return Resources.Load<Font>(ToResourcesPath(path));
         }
 
+        /// <summary>加载结局视频（需要把视频导入成 VideoClip）。</summary>
+        public static UnityEngine.Video.VideoClip LoadVideo(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
+#if UNITY_EDITOR
+            var clip = AssetDatabase.LoadAssetAtPath<UnityEngine.Video.VideoClip>(path);
+            if (clip != null) return clip;
+#endif
+            return Resources.Load<UnityEngine.Video.VideoClip>(ToResourcesPath(path));
+        }
+
         public static TextAsset LoadText(string path)        {
             if (string.IsNullOrWhiteSpace(path)) return null;
 
@@ -62,8 +73,7 @@ namespace VN
         }
 
         /// <summary>把 "Assets/xxx/yyy.png" 变成 Resources 可用的 "xxx/yyy"。</summary>
-        public static string ToResourcesPath(string path)
-        {
+        public static string ToResourcesPath(string path)        {
             if (string.IsNullOrWhiteSpace(path)) return path;
             var p = path.Replace('\\', '/');
 

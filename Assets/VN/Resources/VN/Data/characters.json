@@ -1,0 +1,64 @@
+{
+    "characters": [
+        {
+            "id": "lin",
+            "displayName": "凛",
+            "portrait": "Assets/VN/Resources/VN/Char/she/normal.png",
+            "voice": "Assets/VN/Resources/VN/Audio/Voice/lin.wav",
+            "voiceMode": "char",
+            "voiceVolume": 0.699999988079071,
+            "voicePitchRandom": 0.05999999865889549,
+            "voiceEveryNChars": 1,
+            "font": "",
+            "note": "女主角。先用占位立绘，换图时改这里的 portrait，全剧本跟着变。"
+        },
+        {
+            "id": "wei",
+            "displayName": "薇",
+            "portrait": "",
+            "voice": "Assets/VN/Resources/VN/Audio/Voice/wei.ogg",
+            "voiceMode": "char",
+            "voiceVolume": 0.6499999761581421,
+            "voicePitchRandom": 0.05000000074505806,
+            "voiceEveryNChars": 1,
+            "font": "",
+            "note": "凛的姐姐，铁匠铺。音色比凛低一点。（立绘暂用占位图，换图改这里）"
+        },
+        {
+            "id": "me",
+            "displayName": "我",
+            "portrait": "",
+            "voice": "",
+            "voiceMode": "none",
+            "voiceVolume": 0.0,
+            "voicePitchRandom": 0.0,
+            "voiceEveryNChars": 1,
+            "font": "",
+            "note": "第一人称，不出立绘、不发声。voiceMode 必须是 none。"
+        },
+        {
+            "id": "unknown",
+            "displayName": "？？？",
+            "portrait": "",
+            "voice": "Assets/VN/Resources/VN/Audio/Voice/lin.wav",
+            "voiceMode": "char",
+            "voiceVolume": 0.699999988079071,
+            "voicePitchRandom": 0.05999999865889549,
+            "voiceEveryNChars": 1,
+            "font": "",
+            "note": "其实是凛，第一章开头还没露面。有说话声，但不出立绘。"
+        },
+        {
+            "id": "outsider1",
+            "displayName": "外来者1",
+            "portrait": "",
+            "voice": "Assets/VN/Resources/VN/Audio/Voice/outsider.ogg",
+            "voiceMode": "char",
+            "voiceVolume": 0.5,
+            "voicePitchRandom": 0.0,
+            "voiceEveryNChars": 6,
+            "font": "",
+            "note": "喉咙装了装置的外来者，用循环的低音色。"
+        }
+    ]
+}

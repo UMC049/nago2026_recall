@@ -1,0 +1,43 @@
+{
+    "title": "第三章 · 光",
+    "lines": [
+        {
+            "name": "",
+            "text": "雨停了。",
+            "background": "Assets/VN/Resources/VN/BG/暴雨中的乡间小屋.png",
+            "backgroundFade": 1.5,
+            "useBlind": true,
+            "blind": 0.0,
+            "blindFade": 0.5,
+            "style": { "fontSize": 36, "charsPerSecond": 24, "effect": "none", "effectStrength": 3.0, "effectSpeed": 1.0, "color": "#FFFFFF", "outline": true, "instant": false, "font": "" },
+            "note": "正常视角；这一行同时把失明强度归零"
+        },
+        {
+            "name": "",
+            "text": "……但眼前的东西，开始一点点糊掉。",
+            "useBlind": true,
+            "blind": 0.35,
+            "blindFade": 3.0,
+            "style": { "fontSize": 36, "charsPerSecond": 18, "effect": "none", "effectStrength": 3.0, "effectSpeed": 1.0, "color": "#EDEDED", "outline": true, "instant": false, "font": "" },
+            "note": "3 秒内慢慢糊掉"
+        },
+        {
+            "name": "",
+            "text": "声音变得很远，像隔着一层水。",
+            "useBlind": true,
+            "blind": 0.7,
+            "blindFade": 4.0,
+            "style": { "fontSize": 36, "charsPerSecond": 14, "effect": "wave", "effectStrength": 4.0, "effectSpeed": 0.7, "color": "#DDDDDD", "outline": true, "instant": false, "font": "" },
+            "note": "继续变白、变糊"
+        },
+        {
+            "name": "",
+            "text": "最后，只剩下光。",
+            "useBlind": true,
+            "blind": 1.0,
+            "blindFade": 5.0,
+            "style": { "fontSize": 44, "charsPerSecond": 8, "effect": "none", "effectStrength": 3.0, "effectSpeed": 1.0, "color": "#FFFFFF", "outline": true, "instant": false, "font": "" },
+            "note": "完全失明"
+        }
+    ]
+}

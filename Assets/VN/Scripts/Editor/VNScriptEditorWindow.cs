@@ -45,6 +45,9 @@ namespace VN.EditorTools
         private bool _styleOpen = true;
         private bool _cameraOpen = true;
         private bool _stepsOpen = true;
+        private bool _audioOpen = true;
+        private bool _blindOpen = false;
+        private bool _endingOpen = false;
         private bool _branchOpen = true;
 
         private List<string> _bgOptions = new List<string>();
@@ -53,6 +56,8 @@ namespace VN.EditorTools
         private List<string> _sfxOptions = new List<string>();
         private List<string> _voiceOptions = new List<string>();
         private List<string> _fontOptions = new List<string>();
+        private List<string> _chapterOptions = new List<string>();
+        private List<string> _videoOptions = new List<string>();
 
         private static readonly string[] Motions = { "fade", "none", "slideUp", "slideSide", "bounce", "pop" };
         private static readonly string[] Effects = { "none", "shake", "wave", "pulse", "glitch" };
@@ -154,6 +159,8 @@ namespace VN.EditorTools
             _sfxOptions = Scan(SfxFolder, "t:AudioClip");
             _voiceOptions = Scan("Assets/VN/Resources/VN/Audio/Voice", "t:AudioClip");
             _fontOptions = Scan("Assets/VN/Fonts", "t:Font");
+            _chapterOptions = Scan("Assets/VN/Resources/VN/Data", "t:TextAsset");
+            _videoOptions = Scan("Assets/VN/Resources", "t:VideoClip");
         }
 
         private static List<string> Scan(string folder, string filter)
@@ -389,11 +396,108 @@ namespace VN.EditorTools
             EditorGUILayout.EndHorizontal();
         }
 
+        // ---------------- 分支 / 条件自动标识 ----------------
+
+        private static bool LineHasChoices(VNLine line)
+        {
+            return line != null && line.choices != null && line.choices.Count > 0;
+        }
+
+        private static bool LineHasCondition(VNLine line)
+        {
+            if (line == null || line.choices == null) return false;
+            foreach (var c in line.choices)
+                if (c != null && !string.IsNullOrWhiteSpace(c.condition)) return true;
+            return false;
+        }
+
+        private static bool LineHasEffects(VNLine line)
+        {
+            if (line == null || line.choices == null) return false;
+            foreach (var c in line.choices)
+                if (c != null && !string.IsNullOrWhiteSpace(c.effects)) return true;
+            return false;
+        }
+
+        private static bool LineHasJump(VNLine line)
+        {
+            if (line == null) return false;
+            if (!string.IsNullOrWhiteSpace(line.gotoNode)) return true;
+            if (line.gotoLine >= 0) return true;
+            if (!string.IsNullOrWhiteSpace(line.nextChapter)) return true;
+
+            if (line.choices != null)
+            {
+                foreach (var c in line.choices)
+                {
+                    if (c == null) continue;
+                    if (!string.IsNullOrWhiteSpace(c.targetChapter)) return true;
+                    if (!string.IsNullOrWhiteSpace(c.targetNode)) return true;
+                    if (c.targetLine >= 0) return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>固定 5 个标记位：◆节点 ◇分支 ？条件 →跳转 #数值</summary>
+        private static string LineBadge(VNLine line)
+        {
+            if (line == null) return "     ";
+
+            var sb = new System.Text.StringBuilder(6);
+            sb.Append(' ');
+            sb.Append(string.IsNullOrWhiteSpace(line.nodeId) ? ' ' : '◆');
+            sb.Append(LineHasChoices(line) ? '◇' : ' ');
+            sb.Append(LineHasCondition(line) ? '？' : ' ');
+            sb.Append(LineHasJump(line) ? '→' : ' ');
+            sb.Append(LineHasEffects(line) ? '#' : ' ');
+            return sb.ToString();
+        }
+
+        /// <summary>整行底色：条件最显眼，其次是分支、跳转、节点。</summary>
+        private static Color LineTint(VNLine line)
+        {
+            if (line == null) return Color.clear;
+            if (LineHasCondition(line)) return new Color(1f, 0.72f, 0.72f, 1f);
+            if (LineHasChoices(line)) return new Color(1f, 0.88f, 0.62f, 1f);
+            if (LineHasJump(line)) return new Color(0.74f, 0.88f, 1f, 1f);
+            if (!string.IsNullOrWhiteSpace(line.nodeId)) return new Color(0.78f, 1f, 0.82f, 1f);
+            return Color.clear;
+        }
+
+        private void DrawBranchStats()
+        {
+            if (_script == null || _script.lines == null) return;
+
+            int nodes = 0, branches = 0, conditions = 0, jumps = 0, effects = 0;
+
+            foreach (var l in _script.lines)
+            {
+                if (l == null) continue;
+                if (!string.IsNullOrWhiteSpace(l.nodeId)) nodes++;
+                if (LineHasChoices(l)) branches++;
+                if (LineHasCondition(l)) conditions++;
+                if (LineHasJump(l)) jumps++;
+                if (LineHasEffects(l)) effects++;
+            }
+
+            var prev = GUI.color;
+            GUI.color = branches + conditions > 0
+                ? new Color(1f, 0.9f, 0.7f)
+                : new Color(0.72f, 0.75f, 0.8f);
+            EditorGUILayout.LabelField($"节点 {nodes} · 分支 {branches} · 条件 {conditions} · 跳转 {jumps} · 数值 {effects}",
+                EditorStyles.miniLabel);
+            GUI.color = prev;
+        }
+
         private void DrawListPanel()
         {
             EditorGUILayout.BeginVertical(GUILayout.Width(360));
 
             EditorGUILayout.LabelField($"行（{_script.lines.Count}）", EditorStyles.boldLabel);
+
+            DrawBranchStats();
 
             using (var scroll = new EditorGUILayout.ScrollViewScope(_listScroll, GUILayout.ExpandHeight(true)))
             {
@@ -404,20 +508,30 @@ namespace VN.EditorTools
                     var line = _script.lines[i];
                     var label = string.IsNullOrWhiteSpace(line.name) ? "旁白" : line.name;
                     var preview = (line.text ?? "").Replace("\n", " ");
-                    if (preview.Length > 18) preview = preview.Substring(0, 18) + "…";
+                    if (preview.Length > 16) preview = preview.Substring(0, 16) + "…";
 
                     var style = i == _selected ? EditorStyles.toolbarButton : GUI.skin.button;
-                    var text = $"{i + 1:D2}  [{label}] {preview}";
+                    var text = $"{i + 1:D2}{LineBadge(line)} [{label}] {preview}";
 
                     var rect = GUILayoutUtility.GetRect(new GUIContent(text), style, GUILayout.Height(24));
+
+                    var prevColor = GUI.backgroundColor;
+                    var tint = LineTint(line);
+                    if (tint.a > 0f) GUI.backgroundColor = tint;
+
                     if (GUI.Button(rect, text, style))
                     {
                         if (i != _selected) PushUndo();
                         _selected = i;
                         _detailScroll = Vector2.zero;
                     }
+
+                    GUI.backgroundColor = prevColor;
                 }
             }
+
+            GUILayout.Space(2);
+            EditorGUILayout.LabelField("◆节点  ◇分支  ？条件  →跳转  #数值", EditorStyles.miniLabel);
 
             GUILayout.Space(4);
 
@@ -516,7 +630,41 @@ namespace VN.EditorTools
 
                 EditorGUILayout.BeginHorizontal();
                 line.name = EditorGUILayout.TextField("说话人", line.name);
+                if (GUILayout.Button("角色卡 ▾", GUILayout.Width(84)))
+                {
+                    ShowCharacterMenu(item =>
+                    {
+                        PushUndo();
+                        line.name = item.displayName;
+                        _dirty = true;
+                    });
+                }
                 line.autoDelay = EditorGUILayout.FloatField("自动等待", line.autoDelay, GUILayout.Width(96));
+                EditorGUILayout.EndHorizontal();
+
+                // 一键套用角色卡（立绘 + 语音 + 字体）
+                EditorGUILayout.BeginHorizontal();
+                var card = FindCharacterInEditor(line.name);
+                if (card == null)
+                {
+                    EditorGUILayout.LabelField("角色卡：未匹配（点「角色卡 ▾」选一个）", EditorStyles.miniLabel);
+                }
+                else
+                {
+                    string desc = card.displayName + "（" + card.id + "）";
+                    if (!string.IsNullOrWhiteSpace(card.portrait)) desc += " · 立绘";
+                    if ((card.voiceMode ?? "").ToLowerInvariant() == "none" || string.IsNullOrWhiteSpace(card.voice))
+                        desc += " · 无语音";
+                    else
+                        desc += " · 语音";
+
+                    EditorGUILayout.LabelField("角色卡：" + desc, EditorStyles.miniLabel);
+
+                    if (GUILayout.Button("套用", GUILayout.Width(56)))
+                    {
+                        ApplyCharacterCardToLine(line, card);
+                    }
+                }
                 EditorGUILayout.EndHorizontal();
 
                 EditorGUILayout.LabelField("台词");
@@ -532,15 +680,27 @@ namespace VN.EditorTools
                     line.backgroundFade = EditorGUILayout.Slider("背景淡入（秒）", line.backgroundFade, 0.01f, 3f);
 
                     DrawAssetPopup("BGM", line.bgm, _bgmOptions, v => { line.bgm = v; _dirty = true; });
-                    line.bgmVolume = EditorGUILayout.Slider("BGM 音量", line.bgmVolume, 0f, 1f);
+
+                    string volLabel = line.bgmAction == "fade" ? "淡出到音量" : "BGM 音量";
+                    line.bgmVolume = EditorGUILayout.Slider(volLabel, line.bgmVolume, 0f, 1f);
+
+                    if (!string.IsNullOrWhiteSpace(line.bgm))
+                    {
+                        line.bgmFadeIn = EditorGUILayout.Slider("淡入时长（秒，0 = 用下面的）", line.bgmFadeIn, 0f, 5f);
+                        line.bgmPitchStart = EditorGUILayout.Slider("起始音调", line.bgmPitchStart, 0.3f, 2f);
+                        line.bgmResume = EditorGUILayout.Toggle("同一首从上次进度继续", line.bgmResume);
+                    }
 
                     line.bgmAction = BgmActionPopup(line.bgmAction);
-                    line.bgmFade = EditorGUILayout.Slider("淡入 / 淡出（秒）", line.bgmFade, 0.05f, 5f);
 
-                    if (line.bgmAction == "stop" || line.bgmAction == "pitch")
+                    if (line.bgmAction != "keep")
+                        line.bgmFade = EditorGUILayout.Slider("淡入 / 淡出（秒）", line.bgmFade, 0.05f, 5f);
+
+                    if (line.bgmAction == "stop" || line.bgmAction == "fade" || line.bgmAction == "pitch")
                     {
                         line.bgmPitch = EditorGUILayout.Slider("目标音调", line.bgmPitch, 0.3f, 2f);
                         line.bgmPitchDuration = EditorGUILayout.Slider("变调时长（秒，0 = 立即）", line.bgmPitchDuration, 0f, 5f);
+                        EditorGUILayout.LabelField("1 = 原调，0.8 = 低沉；切换新歌时会自动复位成 1", EditorStyles.miniLabel);
                     }
 
                     if (!string.IsNullOrWhiteSpace(line.bgm) && line.bgmAction != "keep")
@@ -565,9 +725,28 @@ namespace VN.EditorTools
                     EditorGUILayout.LabelField("角色没单独配语音时用这个（写在 VNPlayer 上）", EditorStyles.miniLabel);
 
                     GUILayout.Space(4);
-                    _cameraOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_cameraOpen, "镜头（只影响背景与立绘）");
-                    if (_cameraOpen) DrawCamera(line);
-                    EditorGUILayout.EndFoldoutHeaderGroup();
+                    _cameraOpen = EditorGUILayout.Foldout(_cameraOpen, "镜头（只影响背景与立绘）", true);
+                    if (_cameraOpen)
+                    {
+                        EditorGUI.indentLevel++;
+                        DrawCamera(line);
+                        EditorGUI.indentLevel--;
+                    }
+
+                    GUILayout.Space(4);
+                    _blindOpen = EditorGUILayout.Foldout(_blindOpen, "失明 / 模糊滤镜", true);
+                    if (_blindOpen)
+                    {
+                        EditorGUI.indentLevel++;
+                        line.useBlind = EditorGUILayout.Toggle("启用", line.useBlind);
+                        using (new EditorGUI.DisabledScope(!line.useBlind))
+                        {
+                            line.blind = EditorGUILayout.Slider("失明强度", line.blind, 0f, 1f);
+                            line.blindFade = EditorGUILayout.Slider("渐变时长（秒）", line.blindFade, 0.1f, 10f);
+                        }
+                        EditorGUILayout.LabelField("0 = 正常，1 = 黑白提亮模糊扭曲；只影响背景层", EditorStyles.miniLabel);
+                        EditorGUI.indentLevel--;
+                    }
                 }
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
@@ -582,8 +761,18 @@ namespace VN.EditorTools
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
                 GUILayout.Space(4);
+                _audioOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_audioOpen, "多音轨（可同时播放）");
+                if (_audioOpen) DrawAudioCues(line);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+
+                GUILayout.Space(4);
                 _stepsOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_stepsOpen, "演出顺序表（留空 = 全部同时）");
                 if (_stepsOpen) DrawSteps(line);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+
+                GUILayout.Space(4);
+                _endingOpen = EditorGUILayout.BeginFoldoutHeaderGroup(_endingOpen, "结局 / CG / 视频");
+                if (_endingOpen) DrawEnding(line);
                 EditorGUILayout.EndFoldoutHeaderGroup();
 
                 GUILayout.Space(4);
@@ -602,6 +791,66 @@ namespace VN.EditorTools
             EditorGUILayout.LabelField("立绘（留空则保持上一行）", EditorStyles.boldLabel);
 
             if (line.actors == null) line.actors = new List<VNActor>();
+
+            // 一键退场
+            EditorGUILayout.BeginHorizontal();
+            line.clearActors = EditorGUILayout.Toggle("本行清空所有立绘", line.clearActors);
+
+            if (GUILayout.Button("＋ 添加退场", GUILayout.Width(96)))
+            {
+                PushUndo();
+                foreach (var slot in new[] { "left", "center", "right" })
+                {
+                    bool exists = line.actors.Exists(x => x != null && x.slot == slot);
+                    if (!exists)
+                        line.actors.Add(new VNActor { slot = slot, hide = true });
+                }
+                _dirty = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (line.clearActors)
+                EditorGUILayout.HelpBox("这一行开始时所有立绘立刻消失。单个角色退场请用下面的「隐藏」。", MessageType.None);
+
+            // 角色退场（会连角色卡自动立绘一起关掉）
+            if (line.exitCharacters == null) line.exitCharacters = new List<string>();
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("角色退场", GUILayout.Width(64));
+            if (GUILayout.Button("＋ 添加退场", GUILayout.Width(96)))
+            {
+                ShowCharacterMenu(card =>
+                {
+                    if (!line.exitCharacters.Contains(card.id))
+                    {
+                        PushUndo();
+                        line.exitCharacters.Add(card.id);
+                        _dirty = true;
+                    }
+                });
+            }
+            EditorGUILayout.EndHorizontal();
+
+            for (int i = 0; i < line.exitCharacters.Count; i++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                var cardOf = FindCharacterInEditor(line.exitCharacters[i]);
+                var label = cardOf != null ? cardOf.displayName + "（" + line.exitCharacters[i] + "）" : line.exitCharacters[i];
+                EditorGUILayout.LabelField("   " + label);
+
+                if (GUILayout.Button("✕", GUILayout.Width(22)))
+                {
+                    PushUndo();
+                    line.exitCharacters.RemoveAt(i);
+                    _dirty = true;
+                    EditorGUILayout.EndHorizontal();
+                    break;
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+
+            if (line.exitCharacters.Count > 0)
+                EditorGUILayout.HelpBox("这些角色会在本行退场，之后即使再说话也不会被角色卡自动加回来。", MessageType.None);
 
             // 立绘区高度跟着窗口走：窗口越大给得越多，最少也留 260
             float actorHeight = Mathf.Clamp(position.height - 540f, 260f, 660f);
@@ -734,6 +983,76 @@ namespace VN.EditorTools
 
         // ---------------- 资源字段 ----------------
 
+        private void DrawAudioCues(VNLine line)
+        {
+            if (line.audio == null) line.audio = new List<VNAudioCue>();
+
+            EditorGUILayout.LabelField("每条 = 一条音轨指令；音轨名不同的可以同时出声", EditorStyles.miniLabel);
+
+            for (int i = 0; i < line.audio.Count; i++)
+            {
+                var cue = line.audio[i];
+                if (cue == null) { line.audio[i] = cue = new VNAudioCue(); }
+
+                EditorGUILayout.BeginVertical("box");
+
+                EditorGUILayout.BeginHorizontal();
+                cue.track = EditorGUILayout.TextField("音轨", cue.track);
+                cue.action = Popup("", string.IsNullOrWhiteSpace(cue.action) ? "play" : cue.action,
+                    new[] { "play", "stop", "pitch" }, 46f);
+                if (GUILayout.Button("✕", GUILayout.Width(22)))
+                {
+                    PushUndo();
+                    line.audio.RemoveAt(i);
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
+                    break;
+                }
+                EditorGUILayout.EndHorizontal();
+
+                if (cue.action == "play")
+                    DrawAssetPopup("音频", cue.clip, _bgmOptions, v => { cue.clip = v; _dirty = true; });
+
+                EditorGUILayout.BeginHorizontal();
+                cue.at = EditorGUILayout.FloatField("时间", cue.at, GUILayout.Width(72));
+                cue.volume = EditorGUILayout.Slider("音量", cue.volume, 0f, 1f, GUILayout.Width(150));
+                cue.fade = EditorGUILayout.Slider("淡入淡出", cue.fade, 0.05f, 5f, GUILayout.Width(150));
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.BeginHorizontal();
+                if (cue.action == "play")
+                    cue.loop = EditorGUILayout.Toggle("循环", cue.loop, GUILayout.Width(80));
+                if (cue.action == "stop" || cue.action == "pitch")
+                {
+                    cue.pitch = EditorGUILayout.Slider("目标音调", cue.pitch, 0.3f, 2f, GUILayout.Width(170));
+                    cue.pitchDuration = EditorGUILayout.Slider("变调时长", cue.pitchDuration, 0f, 5f, GUILayout.Width(170));
+                }
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.EndVertical();
+            }
+
+            if (GUILayout.Button("＋ 添加音轨指令", GUILayout.Width(130)))
+            {
+                PushUndo();
+                line.audio.Add(new VNAudioCue
+                {
+                    track = line.audio.Count == 0 ? "ambient" : "bgm",
+                    action = "play",
+                    at = 0f,
+                });
+            }
+
+            if (line.audio.Count > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    "音轨名相同 = 互相替换（同一轨只放一条）；不同 = 同时播放。\n" +
+                    "常用：bgm（主音乐）/ ambient（环境音）/ rain（雨声）……名字随便起。\n" +
+                    "「时间」是相对本行开始的秒数；也可以用演出顺序表勾「音轨」来精确控制。",
+                    MessageType.None);
+            }
+        }
+
         private void DrawSteps(VNLine line)
         {
             if (line.steps == null) line.steps = new List<VNStageStep>();
@@ -757,6 +1076,7 @@ namespace VN.EditorTools
                 s.text = GUILayout.Toggle(s.text, "文字", GUILayout.Width(46));
                 s.sfx = GUILayout.Toggle(s.sfx, "音效", GUILayout.Width(46));
                 s.bgm = GUILayout.Toggle(s.bgm, "BGM", GUILayout.Width(52));
+                s.audio = GUILayout.Toggle(s.audio, "音轨", GUILayout.Width(48));
 
                 if (GUILayout.Button("✕", GUILayout.Width(22)))
                 {
@@ -828,6 +1148,33 @@ namespace VN.EditorTools
             }
         }
 
+        private void DrawEnding(VNLine line)
+        {
+            line.suppressActors = EditorGUILayout.Toggle("本行不显示立绘", line.suppressActors);
+            if (line.suppressActors)
+                EditorGUILayout.LabelField("用于结局 / CG 段：说话人不会自动出图", EditorStyles.miniLabel);
+
+            GUILayout.Space(4);
+
+            DrawAssetPopup("结局 CG", line.endingCg, _bgOptions, v => { line.endingCg = v; _dirty = true; });
+            DrawAssetPopup("结局视频", line.endingVideo, _videoOptions, v => { line.endingVideo = v; _dirty = true; });
+
+            if (!string.IsNullOrWhiteSpace(line.endingCg) || !string.IsNullOrWhiteSpace(line.endingVideo))
+            {
+                line.endingLoop = EditorGUILayout.Toggle("循环播放", line.endingLoop);
+                EditorGUILayout.LabelField("填了视频就优先播视频，否则显示 CG", EditorStyles.miniLabel);
+            }
+
+            GUILayout.Space(4);
+
+            line.endGame = EditorGUILayout.Toggle("到达本行后结束游戏", line.endGame);
+            if (line.endGame)
+            {
+                line.endDelay = EditorGUILayout.FloatField("结束前等待（秒）", line.endDelay);
+                EditorGUILayout.LabelField("编辑器里会停止播放，打包后退出程序", EditorStyles.miniLabel);
+            }
+        }
+
         private void DrawBranch(VNLine line)
         {
             line.effects = EditorGUILayout.TextField("经过时效果", line.effects);
@@ -842,6 +1189,14 @@ namespace VN.EditorTools
             EditorGUILayout.LabelField("播完这行后自动跳转（一般不用填）", EditorStyles.miniBoldLabel);
             line.gotoNode = EditorGUILayout.TextField("跳转到节点", line.gotoNode);
             line.gotoLine = EditorGUILayout.IntField("跳转到行号（-1 = 不跳）", line.gotoLine);
+
+            GUILayout.Space(4);
+            DrawChapterPopup("下一章", line.nextChapter, v => { line.nextChapter = v; _dirty = true; });
+            if (!string.IsNullOrWhiteSpace(line.nextChapter))
+            {
+                line.nextChapterLine = EditorGUILayout.IntField("新章节起始行", line.nextChapterLine);
+                EditorGUILayout.LabelField("播完这行后切换到该章节（数值和历史会保留）", EditorStyles.miniLabel);
+            }
 
             GUILayout.Space(6);
             EditorGUILayout.LabelField("选项（有选项时必须选择才能继续）", EditorStyles.boldLabel);
@@ -868,6 +1223,9 @@ namespace VN.EditorTools
 
                 c.targetNode = EditorGUILayout.TextField("选完后跳到节点", c.targetNode);
                 c.targetLine = EditorGUILayout.IntField("或跳到行号（-1 = 不用）", c.targetLine);
+                DrawChapterPopup("或跳章节", c.targetChapter, v => { c.targetChapter = v; _dirty = true; });
+                if (!string.IsNullOrWhiteSpace(c.targetChapter))
+                    c.targetChapterLine = EditorGUILayout.IntField("章节起始行", c.targetChapterLine);
                 c.condition = EditorGUILayout.TextField("出现条件（留空=总是出现）", c.condition);
                 c.effects = EditorGUILayout.TextField("选完后的效果", c.effects);
 
@@ -927,21 +1285,27 @@ namespace VN.EditorTools
             switch ((value ?? "").Trim().ToLowerInvariant())
             {
                 case "stop": idx = 1; break;
-                case "pitch": idx = 2; break;
-                case "restart": idx = 3; break;
+                case "fade": idx = 2; break;
+                case "pitch": idx = 3; break;
+                case "restart": idx = 4; break;
                 default: idx = 0; break;
             }
 
             idx = EditorGUILayout.Popup("BGM 指令", idx, new[]
             {
-                "保持当前（不变）", "停止 BGM", "只改变音调", "重新播放"
+                "保持当前（什么都不做）",
+                "停止 BGM（可淡出 + 变调下坠）",
+                "淡出到指定音量 + 变调（不停）",
+                "只改变音调（不改音量）",
+                "重新播放（从头）",
             });
 
             switch (idx)
             {
                 case 1: return "stop";
-                case 2: return "pitch";
-                case 3: return "restart";
+                case 2: return "fade";
+                case 3: return "pitch";
+                case 4: return "restart";
                 default: return "keep";
             }
         }
@@ -1019,6 +1383,171 @@ namespace VN.EditorTools
             player.defaultVoice = value ?? "";
             EditorUtility.SetDirty(player);
             _playerDefaultVoice = player.defaultVoice;
+        }
+
+        private void DrawChapterPopup(string label, string current, System.Action<string> apply)
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(label, GUILayout.Width(64));
+
+            current = current ?? "";
+            var display = string.IsNullOrWhiteSpace(current)
+                ? "（不切换章节）"
+                : System.IO.Path.GetFileNameWithoutExtension(current);
+
+            if (GUILayout.Button(display, EditorStyles.popup))
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("（不切换章节）"), string.IsNullOrEmpty(current), () =>
+                {
+                    apply("");
+                    _dirty = true;
+                    Repaint();
+                });
+
+                foreach (var opt in _chapterOptions)
+                {
+                    var captured = opt;
+                    menu.AddItem(new GUIContent(System.IO.Path.GetFileNameWithoutExtension(captured)), current == captured, () =>
+                    {
+                        apply(captured);
+                        _dirty = true;
+                        Repaint();
+                    });
+                }
+
+                menu.ShowAsContext();
+            }
+
+            var obj = AssetDatabase.LoadAssetAtPath<TextAsset>(current);
+            var picked = EditorGUILayout.ObjectField(obj, typeof(TextAsset), false, GUILayout.Width(110));
+            if (picked != null)
+            {
+                var newPath = AssetDatabase.GetAssetPath(picked);
+                if (!string.IsNullOrEmpty(newPath) && newPath != current)
+                {
+                    apply(newPath);
+                    _dirty = true;
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+        }
+
+        // ---------------- 角色卡 ----------------
+
+        private const string CharacterSetPath = "Assets/VN/Resources/VN/Data/characters.json";
+        private VNCharacterSet _editorCharacters;
+
+        private void LoadEditorCharacters()
+        {
+            if (_editorCharacters != null) return;
+
+            var text = VNAssetLoader.LoadText(CharacterSetPath);
+            if (text == null) return;
+            _editorCharacters = JsonUtility.FromJson<VNCharacterSet>(text.text);
+        }
+
+        private List<VNCharacter> EditorCharacters()
+        {
+            LoadEditorCharacters();
+            return _editorCharacters != null && _editorCharacters.characters != null
+                ? _editorCharacters.characters
+                : new List<VNCharacter>();
+        }
+
+        private VNCharacter FindCharacterInEditor(string nameOrId)
+        {
+            var key = (nameOrId ?? "").Trim();
+            if (key.Length == 0) return null;
+
+            var list = EditorCharacters();
+
+            foreach (var c in list)
+            {
+                if (c == null) continue;
+                if (c.id == key || c.displayName == key) return c;
+            }
+
+            foreach (var c in list)
+            {
+                if (c == null) continue;
+                if (!string.IsNullOrWhiteSpace(c.displayName) && (key.Contains(c.displayName) || c.displayName.Contains(key)))
+                    return c;
+                if (!string.IsNullOrWhiteSpace(c.id) && key.Contains(c.id))
+                    return c;
+            }
+
+            return null;
+        }
+
+        private void ShowCharacterMenu(System.Action<VNCharacter> onPick)
+        {
+            var menu = new GenericMenu();
+            var list = EditorCharacters();
+
+            if (list.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("（没有角色卡，先建 characters.json）"));
+            }
+
+            foreach (var c in list)
+            {
+                if (c == null) continue;
+                var captured = c;
+                menu.AddItem(new GUIContent(c.displayName + "（" + c.id + "）"), false, () => onPick(captured));
+            }
+
+            menu.ShowAsContext();
+        }
+
+        /// <summary>把角色卡里的立绘 / 语音一次填到这一行。</summary>
+        private void ApplyCharacterCardToLine(VNLine line, VNCharacter card)
+        {
+            if (line == null || card == null) return;
+
+            PushUndo();
+
+            // 立绘
+            if (!string.IsNullOrWhiteSpace(card.portrait))
+            {
+                if (line.actors == null) line.actors = new List<VNActor>();
+
+                VNActor target = null;
+                foreach (var a in line.actors)
+                {
+                    if (a != null && a.character == card.id) { target = a; break; }
+                }
+
+                if (target == null)
+                {
+                    target = new VNActor { slot = line.actors.Count == 0 ? "center" : "left" };
+                    line.actors.Add(target);
+                }
+
+                target.character = card.id;
+                target.sprite = card.portrait;
+                target.hide = false;
+            }
+
+            // 语音
+            var mode = (card.voiceMode ?? "").Trim().ToLowerInvariant();
+            if (mode == "none" || string.IsNullOrWhiteSpace(card.voice))
+            {
+                line.voice = "";
+                line.voiceMode = "keep";
+                line.voiceVolume = 0f;
+            }
+            else
+            {
+                line.voice = card.voice;
+                line.voiceMode = mode;
+                line.voiceVolume = card.voiceVolume;
+                line.voiceEveryNChars = Mathf.Max(1, card.voiceEveryNChars);
+            }
+
+            _dirty = true;
+            Repaint();
         }
 
         private void DrawFontPopup(string label, string current, System.Action<string> apply)
@@ -1148,12 +1677,18 @@ namespace VN.EditorTools
                 return;
             }
 
+            // 预览只是临时借用 player 的剧本路径，预览完要还原，避免场景被改脏
+            var oldPath = player.scriptAssetPath;
             player.scriptAssetPath = _path;
             player.PreviewInEditor(Mathf.Max(0, _selected));
+            player.scriptAssetPath = oldPath;
 
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
             SceneView.RepaintAll();
         }
+
+        private const string TestScriptKey = "VN.TestScriptPath";
+        private const string TestLineKey = "VN.TestStartLine";
 
         private void PlayFromSelected()
         {
@@ -1170,13 +1705,10 @@ namespace VN.EditorTools
                 return;
             }
 
-            player.scriptAssetPath = _path;
-            player.startLineIndex = Mathf.Max(0, _selected);
-            player.LoadScript(_path);
-
-            var scene = player.gameObject.scene;
-            if (scene.IsValid() && !EditorApplication.isPlaying)
-                EditorSceneManager.SaveScene(scene);
+            // 用 SessionState 把「从第几行开始」传给进入 Play 后的 VNPlayer，
+            // 不写进场景，否则下次直接点 Play 也会从这个测试行开始。
+            SessionState.SetString(TestScriptKey, _path);
+            SessionState.SetInt(TestLineKey, Mathf.Max(0, _selected));
 
             EditorApplication.isPlaying = true;
         }
