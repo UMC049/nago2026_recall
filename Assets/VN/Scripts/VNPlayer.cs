@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,12 +19,39 @@ namespace VN
     public class VNPlayer : MonoBehaviour
     {
         [Header("项目")]
-        [Tooltip("项目名 = Resources/VN/Data 下的子目录名。每个项目有自己的一套章节和角色卡，名字随便起（支持中文）")]
-        public string projectId = "demo";
+        [Tooltip("项目名 = Resources 下的文件夹名（如 Recall）。每个项目有自己的 Arts / Audio / Data")]
+        public string projectId = "Recall";
+
+        /// <summary>项目在 Resources 下的工程路径，如 Assets/VN/Resources/Recall。</summary>
+        public string ResourceRoot
+        {
+            get
+            {
+                var id = (projectId ?? "").Trim();
+                return string.IsNullOrEmpty(id) ? "Assets/VN/Resources" : "Assets/VN/Resources/" + id;
+            }
+        }
+
+        /// <summary>Resources.Load 用的前缀，如 "Recall/"。</summary>
+        public string ResourcePrefix
+        {
+            get
+            {
+                var id = (projectId ?? "").Trim();
+                return string.IsNullOrEmpty(id) ? "" : id + "/";
+            }
+        }
+
+        public string ProjectDataDir => ResourceRoot + "/Data";
+        public string ArtsDir => ResourceRoot + "/Arts";
+        public string BgDir => ArtsDir + "/BG";
+        public string CgDir => ArtsDir + "/CG";
+        public string CharDir => ArtsDir + "/Char";
+        public string AudioDir => ResourceRoot + "/Audio";
 
         [Header("剧本")]
         [Tooltip("当前章节的完整工程路径（运行时用，存档会记录它）")]
-        public string scriptAssetPath = "Assets/VN/Resources/VN/Data/demo/story01.json";
+        public string scriptAssetPath = "Assets/VN/Resources/Recall/Data/story01.json";
         public bool playOnStart = true;
 
         [Tooltip("「新游戏」从哪个文件开始（项目目录下的文件名，如 story01.json）")]
@@ -32,16 +59,6 @@ namespace VN
 
         [Tooltip("角色卡文件名（项目目录下的，如 characters.json）")]
         public string characterSetFile = "characters.json";
-
-        /// <summary>当前项目的数据目录。</summary>
-        public string ProjectDataDir
-        {
-            get
-            {
-                const string root = "Assets/VN/Resources/VN/Data";
-                return string.IsNullOrWhiteSpace(projectId) ? root : root + "/" + projectId.Trim();
-            }
-        }
 
         /// <summary>把「story01.json」或完整路径解析成工程路径。</summary>
         public string ResolveChapterPath(string pathOrName)
@@ -89,9 +106,15 @@ namespace VN
         public bool endingReturnToTitle = true;
 
         [Header("章节")]
-
         [Tooltip("剧本播完自动进入下一个章节（按 Data 目录文件名排序）。调试整条线时打开；正式发布建议用剧本里的 nextChapter 显式指定。")]
         public bool autoNextChapter = false;
+
+        [Header("跨项目（meta / 彩蛋）")]
+        [Tooltip("允许剧本跳到别的项目（不同游戏）。默认关 = 各游戏章节完全隔离")]
+        public bool allowCrossProject = false;
+
+        [Tooltip("随机跨项目跳转时的候选项目名（如 gameB、gameC）。留空则随机跳转会失败")]
+        public string[] crossProjectPool = new string[0];
 
         [Header("主菜单")]
         [Tooltip("启动时先显示主菜单（新游戏 / 继续 / 设置 / 退出）")]
@@ -107,7 +130,7 @@ namespace VN
         public string gameSubtitle = "recall the rain";
 
         [Tooltip("主菜单循环音乐（留空则静音）")]
-        public string titleMusic = "Assets/VN/Resources/VN/Audio/BGM/tt.ogg";
+        public string titleMusic = "Assets/VN/Resources/Recall/Audio/BGM/tt.ogg";
 
         [Range(0f, 1f)]
         [Tooltip("主菜单音乐音量")]
@@ -140,10 +163,10 @@ namespace VN
 
         [Header("系统音效")]
         [Tooltip("保存成功时播放")]
-        public string saveSfx = "Assets/VN/Resources/VN/Audio/SFX/load&save.wav";
+        public string saveSfx = "Assets/VN/Resources/Recall/Audio/SFX/load&save.wav";
 
         [Tooltip("读档成功时播放")]
-        public string loadSfx = "Assets/VN/Resources/VN/Audio/SFX/load&save.wav";
+        public string loadSfx = "Assets/VN/Resources/Recall/Audio/SFX/load&save.wav";
 
         [Tooltip("删除存档时播放（留空 = 用保存音效）")]
         public string deleteSfx = "";
@@ -327,14 +350,19 @@ namespace VN
             EnsureSystemPanel();
 
 #if UNITY_EDITOR
-            // 从编辑器「▶ 播放」进来时，测试起点通过 SessionState 传递，不写进场景
-            if (UnityEditor.SessionState.GetString("VN.TestScriptPath", "") == scriptAssetPath)
+            // 从编辑器「▶ 播放」或调试启动器进来时，测试起点通过 SessionState 传递，不写进场景
+            var testScript = UnityEditor.SessionState.GetString("VN.TestScriptPath", "");
+            if (!string.IsNullOrEmpty(testScript) &&
+                (testScript == scriptAssetPath || testScript == StartChapterPath))
             {
                 int testLine = UnityEditor.SessionState.GetInt("VN.TestStartLine", 0);
                 UnityEditor.SessionState.EraseString("VN.TestScriptPath");
                 UnityEditor.SessionState.EraseInt("VN.TestStartLine");
 
                 HideTitleScreen();
+
+                // 统一从起始章节开始，脚本路径以 startChapterFile 为准
+                scriptAssetPath = StartChapterPath;
                 LoadAndPlay(scriptAssetPath, testLine);
                 return;
             }
@@ -377,11 +405,11 @@ namespace VN
 
                 if (titleBackground == null)
                 {
-                    titleBackground = Resources.Load<Sprite>("VN/BG/title");
+                    titleBackground = Resources.Load<Sprite>(ResourcePrefix + "Arts/BG/title");
                     if (titleBackground == null)
-                        titleBackground = Resources.Load<Sprite>("VN/BG/像素田园：晴日与雷云");
+                        titleBackground = Resources.Load<Sprite>(ResourcePrefix + "Arts/BG/像素田园：晴日与雷云");
                     if (titleBackground == null)
-                        titleBackground = Resources.Load<Sprite>("VN/BG/暴雨中的乡间小屋");
+                        titleBackground = Resources.Load<Sprite>(ResourcePrefix + "Arts/BG/暴雨中的乡间小屋");
                 }
                 _titleScreen.backgroundSprite = titleBackground;
             }
@@ -741,7 +769,19 @@ namespace VN
                 var cur = _script.lines[_index];
                 if (cur != null)
                 {
-                    // 章节切换优先级最高
+                    // 跨项目跳转（meta / 彩蛋）优先级最高，但需要显式允许
+                    if (allowCrossProject &&
+                        (!string.IsNullOrWhiteSpace(cur.crossProjectChapter) || cur.crossProjectRandom))
+                    {
+                        var crossTarget = ResolveCrossProjectTarget(cur);
+                        if (!string.IsNullOrEmpty(crossTarget) &&
+                            EnterCrossProjectChapter(crossTarget, Mathf.Max(0, cur.crossProjectLine)))
+                            return;
+
+                        Debug.LogWarning($"[VN] 跨项目跳转失败：{cur.crossProjectChapter}（random={cur.crossProjectRandom}）");
+                    }
+
+                    // 章节切换
                     if (!string.IsNullOrWhiteSpace(cur.nextChapter))
                     {
                         if (EnterChapter(ResolveChapterPath(cur.nextChapter), Mathf.Max(0, cur.nextChapterLine))) return;
@@ -772,10 +812,85 @@ namespace VN
             ShowLine(_script.lines[_index]);
         }
 
+        // ---------------- 跨项目跳转（meta / 彩蛋） ----------------
+
+        /// <summary>解析跨项目目标：显式「项目名/文件名」优先，否则按开关随机。</summary>
+        private string ResolveCrossProjectTarget(VNLine line)
+        {
+            if (line == null) return "";
+
+            var raw = (line.crossProjectChapter ?? "").Trim();
+
+            if (raw.Length > 0)
+            {
+                // 支持「gameB/story02.json」这种简写
+                if (raw.Contains("/") && !raw.StartsWith("Assets/"))
+                {
+                    var parts = raw.Split('/');
+                    if (parts.Length >= 2)
+                        return "Assets/VN/Resources/" + parts[0].Trim() + "/Data" + "/" + parts[parts.Length - 1].Trim();
+                }
+
+                return raw;
+            }
+
+            return line.crossProjectRandom ? PickRandomOtherChapter() : "";
+        }
+
+        /// <summary>从 crossProjectPool 里随机挑一个项目的随机章节。</summary>
+        private string PickRandomOtherChapter()
+        {
+            if (crossProjectPool == null || crossProjectPool.Length == 0) return "";
+
+            var projects = new List<string>();
+            foreach (var p in crossProjectPool)
+            {
+                if (!string.IsNullOrWhiteSpace(p) && p.Trim() != projectId)
+                    projects.Add(p.Trim());
+            }
+
+            if (projects.Count == 0) return "";
+
+            var proj = projects[UnityEngine.Random.Range(0, projects.Count)];
+
+            var assets = Resources.LoadAll<TextAsset>(proj + "/Data");
+            if (assets == null || assets.Length == 0)
+            {
+                Debug.LogWarning($"[VN] 随机跳转：项目「{proj}」下没有可读的章节");
+                return "";
+            }
+
+            var pick = assets[UnityEngine.Random.Range(0, assets.Length)];
+            Debug.Log($"[VN] 跨项目随机跳转 → {proj}/{pick.name}");
+            return "Assets/VN/Resources/" + proj + "/Data/" + pick.name + ".json";
+        }
+
+        /// <summary>跳到别的项目的章节：同时切项目，角色卡也跟着换。</summary>
+        private bool EnterCrossProjectChapter(string path, int startLine)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+
+            // 路径形如 Assets/VN/Resources/<项目名>/Data/<文件>.json
+            var dir = System.IO.Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
+            var proj = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(dir) ?? "");
+
+            if (!string.IsNullOrEmpty(proj) && proj != projectId)
+            {
+                Debug.Log($"[VN] 跨项目跳转：{projectId} → {proj}");
+                projectId = proj;
+
+                // 角色卡换成本项目的
+                _characters = null;
+                _charactersLoaded = false;
+            }
+
+            return EnterChapter(path, startLine);
+        }
+
         /// <summary>按项目目录下的文件名顺序，自动进入当前章节的下一章。</summary>
         private bool TryAutoNextChapter()
         {
-            var sub = "VN/Data" + (string.IsNullOrWhiteSpace(projectId) ? "" : "/" + projectId.Trim());
+            var sub = (string.IsNullOrWhiteSpace(projectId) ? "" : projectId.Trim() + "/") + "Data";
             var assets = Resources.LoadAll<TextAsset>(sub);
             if (assets == null || assets.Length == 0) return false;
 
@@ -900,6 +1015,47 @@ namespace VN
                 // 默认流程：多音轨可以按 at 自行排时间
                 if (line.audio != null && line.audio.Count > 0)
                     StartCoroutine(ScheduleAudioCues(line));
+            }
+
+            // 自定义效果（插件）：和默认演出同时开始，不阻塞推进
+            PlayCustomEffect(line);
+        }
+
+        /// <summary>调用剧本里指定的自定义效果（IVNStageEffect）。</summary>
+        private void PlayCustomEffect(VNLine line)
+        {
+            if (line == null || string.IsNullOrWhiteSpace(line.customEffect)) return;
+
+            var effect = VNStageEffectRegistry.Find(line.customEffect);
+            if (effect == null)
+            {
+                Debug.LogWarning($"[VN] 找不到自定义效果：{line.customEffect}（检查有没有实现 IVNStageEffect 的脚本）");
+                return;
+            }
+
+            var ctx = new VNEffectContext
+            {
+                player = this,
+                line = line,
+                lineIndex = _index,
+                parameters = line.customEffectParams ?? "",
+                stageRoot = stageRoot,
+                backgroundA = backgroundA,
+                backgroundB = backgroundB,
+                actorLeft = actorLeft,
+                actorCenter = actorCenter,
+                actorRight = actorRight,
+                dialogueRoot = dialogueRoot != null ? dialogueRoot.GetComponent<RectTransform>() : null,
+                host = this,
+            };
+
+            try
+            {
+                StartCoroutine(effect.Play(ctx));
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError($"[VN] 自定义效果 {line.customEffect} 执行失败：{ex}");
             }
         }
 
@@ -2172,13 +2328,13 @@ namespace VN
         // ---------------- 表情 / 高亮 / 转场 ----------------
 
         /// <summary>优先按「角色 + 表情」找图，找不到再退回 sprite 整路径。</summary>
-        private static Sprite ResolveActorSprite(VNActor actor)
+        private Sprite ResolveActorSprite(VNActor actor)
         {
             if (actor == null) return null;
 
             if (!string.IsNullOrWhiteSpace(actor.character))
             {
-                var dir = "Assets/VN/Resources/VN/Char/" + actor.character.Trim();
+                var dir = CharDir + "/" + actor.character.Trim();
 
                 if (!string.IsNullOrWhiteSpace(actor.expression))
                 {

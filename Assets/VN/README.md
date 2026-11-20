@@ -69,7 +69,7 @@
 **播完这行自动进下一章**
 
 ```json
-"nextChapter": "Assets/VN/Resources/VN/Data/chapter03.json",
+"nextChapter": "Assets/VN/Resources/Recall/Data/story03.json",
 "nextChapterLine": 0
 ```
 
@@ -77,7 +77,7 @@
 
 ```json
 { "text": "进入第三章", 
-  "targetChapter": "Assets/VN/Resources/VN/Data/chapter03.json",
+  "targetChapter": "Assets/VN/Resources/Recall/Data/story03.json",
   "targetChapterLine": 0 }
 ```
 
@@ -120,7 +120,7 @@
 | `chapterCardHold` | 1.6 | 标题停留时间 |
 | `chapterCardFadeOut` | 0.9 | 淡出时间 |
 
-编辑器里「分支 / 选项 / 数值」组有「下一章」下拉，每个选项卡片里也有「或跳章节」，都会自动列出 `Resources/VN/Data/` 下的所有 JSON。
+编辑器里「分支 / 选项 / 数值」组有「下一章」下拉，每个选项卡片里也有「或跳章节」，都会自动列出 `Resources/` 下的所有 JSON。
 
 **调试整条线**：`VNPlayer` 上有个 `autoNextChapter` 开关。打开后，剧本播完会自动按文件名顺序进入下一章
 （chapter01 → chapter02 → chapter03），不用每章都配 `nextChapter`。
@@ -297,7 +297,7 @@ visit(route_a)
 
 想换歌：把新文件放进 `Audio/BGM/`，改 `VNPlayer` 的 `Title Music` 字段，或把文件名改成 `tt`。
 
-想换标题背景：把新图放进 `Assets/VN/Resources/VN/BG/`，在 `VNPlayer` 的 `Title Background` 里选，或者改名为 `title` 让它自动生效。
+想换标题背景：把新图放进 `Assets/VN/Resources/Recall/Arts/BG/`，在 `VNPlayer` 的 `Title Background` 里选，或者改名为 `title` 让它自动生效。
 
 背景按 **EnvelopeParent** 处理——等比放大到铺满屏幕，裁掉溢出部分，所以任何分辨率下都不会被拉变形。
 
@@ -327,7 +327,7 @@ visit(route_a)
 
 ```json
 {
-  "background": "Assets/VN/Resources/VN/CG/ending01.jpg",
+  "background": "Assets/VN/Resources/Recall/Arts/CG/ending01.jpg",
   "backgroundFade": 1.5,
   "text": "demo到此结束，非常非常感谢游玩……",
   "suppressActors": true,
@@ -492,7 +492,7 @@ C:\Users\22776\AppData\LocalLow\DefaultCompany\nago2026_recall\vn_saves\
 
 ### 角色卡
 
-`Resources/VN/Data/characters.json` 里给每个角色配一次：默认立绘、说话音、字体。
+`Resources/<项目>/Data/characters.json` 里给每个角色配一次：默认立绘、说话音、字体。
 之后编辑剧情只要选一下角色，这些就自动带上，不用每行重复填。
 
 **可视化编辑**：菜单 `VN → 角色卡`（不用手改 JSON）
@@ -520,8 +520,8 @@ C:\Users\22776\AppData\LocalLow\DefaultCompany\nago2026_recall\vn_saves\
     {
       "id": "lin",
       "displayName": "凛",
-      "portrait": "Assets/VN/Resources/VN/Char/she/normal.png",
-      "voice": "Assets/VN/Resources/VN/Audio/Voice/voice_she.wav",
+      "portrait": "Assets/VN/Resources/Recall/Arts/Char/she/normal.png",
+      "voice": "Assets/VN/Resources/Recall/Audio/Voice/voice_she.wav",
       "voiceMode": "char",
       "voiceVolume": 0.7,
       "voicePitchRandom": 0.06,
@@ -620,7 +620,7 @@ C:\Users\22776\AppData\LocalLow\DefaultCompany\nago2026_recall\vn_saves\
 ```json
 "actors": [{
   "slot": "center", "character": "she",
-  "voice": "Assets/VN/Resources/VN/Audio/Voice/voice_she.wav",
+  "voice": "Assets/VN/Resources/Recall/Audio/Voice/voice_she.wav",
   "voiceMode": "char",
   "voiceVolume": 0.7,
   "voicePitchRandom": 0.06,
@@ -654,7 +654,7 @@ C:\Users\22776\AppData\LocalLow\DefaultCompany\nago2026_recall\vn_saves\
 
 **行级覆盖**：某一行想换音色或换模式，直接在行上写 `voice` / `voiceMode` / `voiceVolume`。
 
-示例素材：`Resources/VN/Audio/Voice/` 下有三个我用程序生成的方波音（`voice_she` / `voice_traveler` / `voice_loop_she`），
+示例素材：`Resources/Recall/Audio/Voice/` 下有三个我用程序生成的方波音（`voice_she` / `voice_traveler` / `voice_loop_she`），
 替换成你自己的合成器采样即可，文件名随意，在编辑器下拉里选。
 
 ### 表情切换
@@ -727,36 +727,59 @@ Assets/VN/
 │       ├── VNSceneBuilder.cs    一键生成场景
 │       ├── VNScriptEditorWindow.cs  剧本编辑器
 │       ├── VNCharacterEditorWindow.cs 角色卡编辑器
+│       ├── VNDebugLauncherWindow.cs 调试启动器
 │       ├── VNProjectPopup.cs    新建项目弹窗
+│       ├── VNInputPopup.cs      通用输入弹窗（重命名）
 │       ├── VNBuilder.cs         一键打包
 │       └── VNImportPostprocessor.cs 素材自动导入设置
-├── Resources/VN/Data/
-│   └── demo/                    一个项目 = 一个文件夹（名字随便起）
-│       ├── characters.json      角色卡
-│       ├── story01.json         章节
-│       ├── story02.json
-│       └── story03.json
+├── Effects/
+│   ├── VNTextEffect.cs          文字特效（抖动/波浪/呼吸/故障）
+│   └── VNStageEffect.cs         自定义效果插件接口 + 注册表
+├── Examples/
+│   └── VNExampleEffects.cs      4 个插件示例
+├── Resources/
+│   ├── Shaders/VNBlindEffect.shader
+│   └── Recall/                  ← 一个项目 = 一个文件夹
+│       ├── Arts/
+│       │   ├── BG/                 背景
+│       │   ├── CG/                 结局图 / 全屏插画
+│       │   └── Char/<角色id>/      立绘
+│       ├── Audio/
+│       │   ├── BGM/
+│       │   ├── SFX/
+│       │   └── Voice/
+│       └── Data/
+│           ├── characters.json     角色卡
+│           ├── story01.json        章节
+│           ├── story02.json
+│           └── story03.json
 └── Fonts/fusion-pixel-12px-zh_hans.ttf  像素字体
 ```
 
-素材统一放在 `Assets/VN/Resources/VN/` 下：
+**多项目**：`Resources/` 下的每个一级文件夹是一个独立项目，**自带一整套资源**：
 
 ```
-Assets/VN/Resources/VN/
-├── BG/            背景图
-├── Char/          人物立绘（透明 PNG）
-├── Audio/BGM/     背景音乐
-├── Audio/SFX/     音效
-└── Data/
-    ├── demo/            项目 A（章节 + 角色卡）
-    └── 另一个游戏/      项目 B（章节 + 角色卡）
+Assets/VN/Resources/
+├── Shaders/          框架共用
+├── Recall/           项目 A
+│   ├── Arts/{BG,CG,Char}
+│   ├── Audio/{BGM,SFX,Voice}
+│   └── Data/{characters.json, story*.json}
+└── 另一个游戏/        项目 B（结构完全一样）
 ```
 
-**多项目**：`Data/` 下的每个子目录是一个独立项目，可以有自己的章节和角色卡，名字随便起（支持中文）。
-素材（BG / Char / Audio）是所有项目共享的。
+- 项目名 = 文件夹名，支持中文
+- 新建项目时编辑器会自动建好整套模板目录 + 空角色卡
+- 字体（`Assets/VN/Fonts`）和 Shader（`Resources/Shaders`）是所有项目共用的
 
 `VNPlayer` 上对应三个字段：`projectId`（项目名）、`startChapterFile`（起始章节文件名）、
-`characterSetFile`（角色卡文件名）。运行时路径 = `Data/<projectId>/<文件名>`。
+`characterSetFile`（角色卡文件名）。路径自动推导：
+
+```
+<projectId>/Data/<章节>          <projectId>/Arts/BG
+<projectId>/Data/characters.json <projectId>/Arts/CG
+<projectId>/Arts/Char/<角色id>    <projectId>/Audio/{BGM,SFX,Voice}
+```
 
 章节跳转 `nextChapter` 只写文件名（如 `story02.json`）时会自动拼到当前项目下，写完整路径则原样使用。
 
@@ -764,7 +787,7 @@ Assets/VN/Resources/VN/
 `Assets/VN/Resources/` 和 `Assets/Sounds/` 下的图片/音频会被自动设成正确的导入格式
 （Sprite + Point 过滤 + 无压缩），像素图不会糊。
 
-剧本里的路径写工程内全路径，例如 `Assets/VN/Resources/VN/BG/bg_room.png`；
+剧本里的路径写工程内全路径，例如 `Assets/VN/Resources/Recall/Arts/BG/bg_room.png`；
 加载器会自动把它转成 `Resources` 相对路径供打包后使用。
 
 ## 剧本格式
@@ -894,6 +917,48 @@ Assets/VN/Resources/VN/
 
 设计分辨率是 **1920×1080（16:9）**。屏幕比例不是 16:9 时，内容按 16:9 居中留黑边，
 不会被拉变形。想改基准，编辑 `VNSceneBuilder.ReferenceResolution` 后重建。
+
+## 自定义演出效果（插件）
+
+内置效果（文字 / 镜头 / 立绘动作 / 转场 / 滤镜）都是写死的。要加自己的，**不用改框架**：
+
+```csharp
+public class MyEffect : IVNStageEffect
+{
+    public string Id => "my_effect";          // 剧本里填这个
+    public string DisplayName => "我的效果";
+
+    public IEnumerator Play(VNEffectContext ctx)
+    {
+        // ctx.stageRoot / ctx.actorCenter / ctx.dialogueRoot ...
+        yield return null;
+    }
+}
+```
+
+- 脚本放 `Assets` 下任意位置即可，`VNStageEffectRegistry` 会自动扫描
+- 剧本行填 `customEffect: "my_effect"`，参数写 `customEffectParams: "dist=8;time=0.5"`
+- 效果和默认演出同时开始，不阻塞推进
+- 编辑器下拉在「自定义效果（插件）」组里，点 `↻` 重新扫描
+
+`VNEffectContext` 提供的可用节点：
+
+| 成员 | 类型 |
+|---|---|
+| `player` | `VNPlayer` |
+| `line` / `lineIndex` / `parameters` | `VNLine` / `int` / `string` |
+| `stageRoot` | `RectTransform` |
+| `backgroundA` / `backgroundB` | `Image` |
+| `actorLeft` / `actorCenter` / `actorRight` | `Image` |
+| `dialogueRoot` | `RectTransform` |
+| `GetActor(slot)` / `GetParam(key, def)` / `GetParamFloat(key, def)` | 便捷方法 |
+
+示例见 `Assets/VN/Examples/VNExampleEffects.cs`（4 个可直接抄的实现）。
+
+> 实现细节：`Assets/VN/Scripts/VNStageEffect.cs`。
+> 打包成 IL2CPP 时如果不引用到插件类型，可能被裁剪——Mono 后端（Windows Standalone）不受影响。
+
+---
 
 ## 注意事项
 

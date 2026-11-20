@@ -1,12 +1,85 @@
 # 更新说明
 
-> GitHub 发布时直接复制对应版本段落即可。
+> **填写规则**
+>
+> - 按日期分段，格式 `## YYYY-MM-DD`
+> - **每次改动后我先向你汇报改了什么，你确认之后我再写进来**
+> - 同一天多次改动合并到同一个日期段
+> - 发布时复制对应日期段到 GitHub Release / 提交说明
 
 ---
 
-## [未发布] — Demo 版收尾
+## 2026-11-20
 
-这一版把 VN 工具从「能跑」补到「能写、能打包、能发」。
+### 新增
+
+**调试启动器**
+
+- `VN → 调试启动器`：选项目 + 选章节，直接进 Play
+- 章节下拉只列当前项目的 JSON，默认各游戏隔离
+- 跳过主菜单 / 从指定行开始
+- 只改 VNPlayer 的内存，不保存场景；选择会被记住
+
+**跨项目跳转（meta / 彩蛋）**
+
+- `VNPlayer.allowCrossProject`：默认关，关了则不同游戏的章节完全隔离
+- 剧本行 `crossProjectChapter`（`项目名/文件名`）指定跳转目标
+- 剧本行 `crossProjectRandom` + `crossProjectPool` 随机跳
+- 跳转时自动切换 `projectId`，角色卡跟着换成目标项目的
+- 调试启动器可预先指定目标：目标项目 / 目标章节 / 第一行·指定行·随机行
+
+**演出效果插件**
+
+- `IVNStageEffect` 接口 + `VNEffectContext` 上下文
+- `VNStageEffectRegistry` 反射自动发现，新写的脚本不用注册
+- 剧本行新增「自定义效果（插件）」组：效果下拉 + 参数
+- 提供 `GetActor(slot)` / `GetParam(key)` / `GetParamFloat(key)` 等便捷方法
+- 附带 4 个示例：对话框晃动 / 立绘弹跳 / 镜头推近 / 全屏闪色
+
+**项目与章节重命名**
+
+- 项目栏「✎ 重命名项目」、工具栏「✎ 重命名章节」
+- 支持中文，重名会拒绝，重命名后当前路径自动更新
+
+**项目模板**
+
+- 新建项目时自动创建 `Arts/BG`、`Arts/CG`、`Arts/Char`、`Audio/BGM`、`Audio/SFX`、`Audio/Voice`、`Data/characters.json`
+
+### 改动
+
+**资源结构：一个项目 = Resources 下的一个文件夹**
+
+```
+Resources/
+├── Shaders/          框架共用
+├── Recall/           项目 A
+│   ├── Arts/{BG,CG,Char}
+│   ├── Audio/{BGM,SFX,Voice}
+│   └── Data/{characters.json, story*.json}
+└── 另一个游戏/        项目 B（同结构）
+```
+
+- `Resources/VN` → `Resources/Recall`（项目名 = 文件夹名）
+- `BG` / `CG` / `Char` → 归入 `Arts/`
+- 素材不再全项目共享：背景 / CG / 立绘 / 音频都按项目独立
+- 字体（`Assets/VN/Fonts`）和 Shader（`Resources/Shaders`）仍全局共用
+- `VNPlayer` 新增 `ResourceRoot` / `ArtsDir` / `BgDir` / `CgDir` / `CharDir` / `AudioDir`，路径全部动态推导
+- 效果脚本移入 `Assets/VN/Scripts/Effects/`
+
+### 修复
+
+| 问题 | 原因 |
+|---|---|
+| 插件注册表在中文路径下崩溃 | `Assembly.GetName()` 抛 `ExecutionEngineException`，已包 try-catch |
+| 切项目后角色卡下拉还显示上一个项目的角色 | `SwitchProject` 没清 `_editorCharacters` 缓存 |
+| 跨项目复制角色卡没写进文件 | `AssetDatabase.Refresh()` 时机不稳，改成 `ImportAsset(具体路径)` |
+| 跨项目跳转后项目名解析错误 | 新路径层级多了 `Data` 一层，改成取父目录的父目录 |
+| `ResolveActorSprite` 编译报错 | 改成实例方法（要用 `CharDir`） |
+| 调试起点匹配不到 | 改用 `StartChapterPath` 匹配，切换项目后也能定位 |
+
+---
+
+## 2026-11-18
 
 ### 新增
 
@@ -120,12 +193,11 @@
 
 ## 更早的版本
 
-（在这里往上追加历史版本）
+（按日期往上追加）
 
 ---
 
 ## 发布时怎么写
 
-1. 把上面 `[未发布]` 整段复制到 GitHub Release / 提交说明
-2. 把标题改成 `[v1.0.0] — 2026-11-16` 这样的格式
-3. 在下面新开一个空的 `[未发布]` 段落，继续记录下次的改动
+1. 复制对应日期的整段内容到 GitHub Release / 提交说明
+2. 需要版本号时，在日期后补一个，如 `## 2026-11-18 · v1.0.0`

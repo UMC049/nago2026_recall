@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -15,8 +15,8 @@ namespace VN.EditorTools
     {
         private const string ScenePath = "Assets/VN/Scenes/VN.unity";
         private const string FontPath = "Assets/VN/Fonts/fusion-pixel-12px-zh_hans.ttf";
-        private const string DefaultProject = "demo";
-        private const string DefaultScript = "Assets/VN/Resources/VN/Data/demo/story01.json";
+        private const string DefaultProject = "Recall";
+        private const string DefaultScript = "Assets/VN/Resources/Recall/Data/story01.json";
 
         // 横屏全屏设计基准（16:9，跟电脑显示器一致）
         private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);

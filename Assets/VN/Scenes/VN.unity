@@ -1873,10 +1873,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e0f01804dcfdc4a4892e8c597bae0488, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  scriptAssetPath: Assets/VN/Resources/VN/Data/demo/story01.json
+  scriptAssetPath: Assets/VN/Resources/Recall/Data/story01.json
   startChapterFile: story01.json
   characterSetFile: characters.json
-  projectId: demo
+  projectId: Recall
   playOnStart: 1
   startLineIndex: 0
   stageRoot: {fileID: 1527856917}
@@ -1896,7 +1896,7 @@ MonoBehaviour:
   titleBackground: {fileID: 21300000, guid: 30b0d1816a42ed24f8ef73538e561170, type: 3}
   gameTitle: "\u56DE\u54CDRECALL"
   gameSubtitle: 
-  titleMusic: Assets/VN/Resources/VN/Audio/BGM/tt.ogg
+  titleMusic: Assets/VN/Resources/Recall/Audio/BGM/tt.ogg
   titleMusicVolume: 0.6
   blindAmount: 0
   dialogueRoot: {fileID: 259930639}
@@ -1907,8 +1907,8 @@ MonoBehaviour:
   nextIndicator: {fileID: 957486436}
   dialogueFont: {fileID: 12800000, guid: 6367042b81d153344b6a61601013e3c9, type: 3}
   audioManager: {fileID: 1208591990}
-  saveSfx: Assets/VN/Resources/VN/Audio/SFX/load&save.wav
-  loadSfx: Assets/VN/Resources/VN/Audio/SFX/load&save.wav
+  saveSfx: Assets/VN/Resources/Recall/Audio/SFX/load&save.wav
+  loadSfx: Assets/VN/Resources/Recall/Audio/SFX/load&save.wav
   deleteSfx: 
   systemSfxVolume: 0.8
   choicePanel: {fileID: 0}

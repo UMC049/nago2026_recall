@@ -319,6 +319,23 @@ namespace VN
         [Tooltip("结束前等待几秒（留给玩家看结局画面）")]
         public float endDelay = 3f;
 
+        [Header("跨项目（meta / 彩蛋）")]
+        [Tooltip("跳到其他项目的章节：写「项目名/文件名」，如 gameB/story02.json。需要 VNPlayer 开启 allowCrossProject")]
+        public string crossProjectChapter = "";
+
+        [Tooltip("随机跳到其他项目的某一章（留空 crossProjectChapter 时生效）")]
+        public bool crossProjectRandom = false;
+
+        [Tooltip("跳过去从第几行开始（0 起）")]
+        public int crossProjectLine = 0;
+
+        [Header("自定义效果（插件）")]
+        [Tooltip("调用自己写的 IVNStageEffect：填它的 Id（如 my_shake）。留空 = 不调用")]
+        public string customEffect = "";
+
+        [Tooltip("传给自定义效果的参数，自由字符串，如 dist=8;time=0.5")]
+        public string customEffectParams = "";
+
         [TextArea(1, 3)]
         [Tooltip("备注，不进游戏，只给你自己看")]
         public string note = "";

@@ -1,0 +1,18 @@
+{
+    "characters": [
+        {
+            "id": "me",
+            "displayName": "我",
+            "portrait": "",
+            "portraitEnabled": true,
+            "portraitSlot": "center",
+            "voice": "",
+            "voiceMode": "none",
+            "voiceVolume": 0.0,
+            "voicePitchRandom": 0.0,
+            "voiceEveryNChars": 1,
+            "font": "",
+            "note": "第一人称，不出立绘、不发声。voiceMode 必须是 none。"
+        }
+    ]
+}

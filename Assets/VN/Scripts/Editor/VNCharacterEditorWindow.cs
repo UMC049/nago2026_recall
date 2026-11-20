@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -10,11 +10,11 @@ namespace VN.EditorTools
     /// </summary>
     public class VNCharacterEditorWindow : EditorWindow
     {
-        private const string DataRoot = "Assets/VN/Resources/VN/Data";
+        private const string DataRoot = "Assets/VN/Resources";
         private const string ProjectPrefKey = "VN.CurrentProject";
         private const string DefaultProject = "demo";
-        private const string PortraitFolder = "Assets/VN/Resources/VN/Char";
-        private const string VoiceFolder = "Assets/VN/Resources/VN/Audio";
+        private string PortraitFolder => ProjectDir + "/Arts/Char";
+        private string VoiceFolder => ProjectDir + "/Audio";
         private const string FontFolder = "Assets/VN/Fonts";
 
         /// <summary>当前项目（跟剧本编辑器共享）。</summary>
@@ -22,7 +22,7 @@ namespace VN.EditorTools
 
         private string ProjectDir => string.IsNullOrWhiteSpace(_projectId) ? DataRoot : DataRoot + "/" + _projectId;
 
-        private string CharacterPath => ProjectDir + "/characters.json";
+        private string CharacterPath => ProjectDir + "/Data/characters.json";
 
         private VNCharacterSet _set;
         private int _selected;
@@ -146,7 +146,7 @@ namespace VN.EditorTools
         /// </summary>
         private void SyncChapters(bool applyChanges = true)
         {
-            var guids = AssetDatabase.FindAssets("t:TextAsset", new[] { ProjectDir });
+            var guids = AssetDatabase.FindAssets("t:TextAsset", new[] { ProjectDir + "/Data" });
 
             int updated = 0;
             int removed = 0;
